@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'dart:io' show Platform, exit, Process;
+import 'dart:io' show Platform, Process;
 import 'dart:convert';
 import 'dart:async';
 import 'services/clipboard_service.dart';
 import 'services/window_service.dart';
 import 'services/system_tray_service.dart';
 import 'services/hotkey_service.dart';
-import 'services/data_manager.dart';
+import 'services/clipboard_data_service.dart';
+import 'services/storage_service.dart';
 import 'widgets/clipboard_history_window.dart';
 import 'widgets/settings_window.dart';
 import 'package:get/get.dart';
@@ -98,9 +99,6 @@ void main(List<String> args) async {
 
   // 检查是否是子窗口 - 使用 multi_window 参数检查
   if (args.isNotEmpty && args.first == 'multi_window') {
-    // 这是一个子窗口 - 不需要初始化Hive，只初始化GetX
-    await _initializeGetXForSubWindow();
-
     final windowId = int.parse(args[1]);
     final windowArgs = args.length > 2 && args[2].isNotEmpty
         ? jsonDecode(args[2]) as Map<String, dynamic>
@@ -109,6 +107,13 @@ void main(List<String> args) async {
     debugPrint('Starting sub-window: $windowId with args: $windowArgs');
 
     final windowType = windowArgs['windowType'] as String? ?? 'unknown';
+    final loadFromStorage = windowArgs['loadFromStorage'] as bool? ?? false;
+
+    // 设置为子进程
+    ClipboardController.setProcessType(isMainProcess: false);
+
+    // 这是一个子窗口 - 从存储加载数据
+    await _initializeSubWindow(loadFromStorage);
 
     if (windowType == 'settings') {
       runApp(
@@ -126,18 +131,14 @@ void main(List<String> args) async {
       );
     }
   } else {
-    // 这是主窗口 - 完整初始化
+    // 这是主窗口 - 完整初始化所有服务
     debugPrint('Starting main window');
 
-    // 初始化GetX和Hive
-    await _initializeGetX();
+    // 设置为主进程
+    ClipboardController.setProcessType(isMainProcess: true);
 
-    // 初始化所有服务
-    await WindowService().initialize();
-    await SystemTrayService().initialize();
-
-    // 使用HotkeyService统一管理热键
-    await HotkeyService().initialize();
+    // 完整初始化主进程
+    await _initializeMainWindow();
 
     // 设置应用退出时的清理
     WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
@@ -376,6 +377,14 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
   void _cleanup() async {
     debugPrint('🧹 应用即将退出，清理资源...');
 
+    // 保存数据
+    try {
+      await ClipboardDataService().forceSave();
+      debugPrint('✓ 数据已强制保存');
+    } catch (e) {
+      debugPrint('⚠️ 强制保存失败: $e');
+    }
+
     // 使用HotkeyService清理热键
     try {
       HotkeyService().dispose();
@@ -390,30 +399,49 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
   }
 }
 
-/// 初始化GetX和全局控制器（主窗口）
-Future<void> _initializeGetX() async {
-  debugPrint('🚀 主窗口：初始化GetX和数据管理器...');
+/// 初始化主窗口（完整的服务初始化）
+Future<void> _initializeMainWindow() async {
+  debugPrint('🚀 主窗口：开始完整初始化...');
 
-  // 初始化数据管理器
-  await DataManager().initialize();
-  debugPrint('📦 DataManager 已初始化');
+  try {
+    // 1. 初始化剪贴板数据服务（包含存储和内存管理）
+    await ClipboardDataService().initialize();
+    debugPrint('✅ 剪贴板数据服务初始化完成');
 
-  // 注册全局ClipboardController
-  Get.put(ClipboardController(), permanent: true);
+    // 2. 初始化GetX和全局控制器
+    Get.put(ClipboardController(), permanent: true);
+    debugPrint('✅ GetX控制器初始化完成');
 
-  debugPrint('✅ 主窗口：GetX初始化完成');
+    // 3. 初始化所有窗口服务
+    await WindowService().initialize();
+    await SystemTrayService().initialize();
+    debugPrint('✅ 窗口服务初始化完成');
+
+    // 4. 使用HotkeyService统一管理热键
+    await HotkeyService().initialize();
+    debugPrint('✅ 热键服务初始化完成');
+
+    // 5. 启动剪贴板监听
+    await ClipboardService().initialize();
+    debugPrint('✅ 剪贴板监听启动完成');
+
+    debugPrint('🎉 主窗口：所有服务初始化完成');
+  } catch (e) {
+    debugPrint('❌ 主窗口初始化失败: $e');
+  }
 }
 
-/// 初始化GetX控制器（子窗口）
-Future<void> _initializeGetXForSubWindow() async {
-  debugPrint('🚀 子窗口：初始化GetX...');
+/// 初始化子窗口（超轻量级初始化）
+Future<void> _initializeSubWindow(bool loadFromStorage) async {
+  debugPrint('🚀 子窗口：开始超轻量级初始化...');
 
-  // 确保数据管理器已初始化（如果没有则初始化）
-  await DataManager().initialize();
-  debugPrint('📦 子窗口：DataManager 确保已初始化');
+  try {
+    // 只初始化GetX控制器，让Controller自己处理数据获取
+    Get.put(ClipboardController(), permanent: true);
+    debugPrint('✅ 子窗口：GetX控制器初始化完成');
 
-  // 注册控制器
-  Get.put(ClipboardController(), permanent: true);
-
-  debugPrint('✅ 子窗口：GetX初始化完成');
+    debugPrint('🎉 子窗口：超轻量级初始化完成');
+  } catch (e) {
+    debugPrint('❌ 子窗口初始化失败: $e');
+  }
 }

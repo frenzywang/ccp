@@ -1,59 +1,48 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
+import '../controllers/clipboard_controller.dart';
+import 'clipboard_data_service.dart';
 
+/// 剪贴板监听服务
+/// 负责监听系统剪贴板变化，将新内容传递给 ClipboardDataService
+/// 不再独立管理剪贴板数据
 class ClipboardService {
   static final ClipboardService _instance = ClipboardService._internal();
   factory ClipboardService() => _instance;
   ClipboardService._internal();
 
-  final List<ClipboardItem> _items = [];
-  final StreamController<List<ClipboardItem>> _controller =
-      StreamController<List<ClipboardItem>>.broadcast();
-
   String? _lastClipboardContent;
-  int maxItems = 50;
-
   bool _isInitializing = false;
 
   // 剪贴板监听定时器
   Timer? _clipboardTimer;
   bool _isWatching = false;
 
-  Stream<List<ClipboardItem>> get itemsStream => _controller.stream;
-  List<ClipboardItem> get items => List.unmodifiable(_items);
-
   Future<void> initialize() async {
     if (_isInitializing) return;
     _isInitializing = true;
 
-    print('正在初始化剪贴板服务...');
+    print('🚀 正在初始化剪贴板监听服务...');
 
     try {
-      // 首先清空旧数据
-      _items.clear();
-
-      // 立即获取当前剪贴板内容
+      // 立即获取当前剪贴板内容并添加到数据服务
       await _addCurrentClipboardContent();
 
       // 启动剪贴板监听
       await _startWatching();
 
-      print('剪贴板服务初始化完成，共 ${_items.length} 条记录');
-
-      // 通知订阅者
-      _controller.add(_items);
+      print('✅ 剪贴板监听服务初始化完成');
     } catch (e) {
-      print('剪贴板服务初始化出错: $e');
+      print('❌ 剪贴板监听服务初始化出错: $e');
+
       // 即使出错也要尝试获取当前内容
       try {
         await _addCurrentClipboardContent();
-        _controller.add(_items);
       } catch (e2) {
-        print('获取当前剪贴板内容也失败: $e2');
-        // 提供最基本的默认数据
-        _addBasicSampleData();
+        print('❌ 获取当前剪贴板内容也失败: $e2');
       }
     } finally {
       _isInitializing = false;
@@ -71,16 +60,16 @@ class ClipboardService {
       _lastClipboardContent = data?.text;
       print('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
 
-      print('✓ 开始监听剪贴板变化（检查间隔：300ms）');
+      print('👂 开始监听剪贴板变化（检查间隔：300ms）');
 
-      // 使用更短的定时器间隔来更快地检测剪贴板变化
+      // 使用定时器定期检测剪贴板变化
       _clipboardTimer = Timer.periodic(const Duration(milliseconds: 300), (
         timer,
       ) {
         _checkClipboardChange();
       });
     } catch (e) {
-      print('启动剪贴板监听失败: $e');
+      print('❌ 启动剪贴板监听失败: $e');
       _isWatching = false;
     }
   }
@@ -96,71 +85,46 @@ class ClipboardService {
         print(
           '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? "${currentContent.substring(0, 30)}..." : currentContent}',
         );
-        await _addClipboardItem(currentContent, ClipboardItemType.text);
+
+        // 将新内容传递给数据服务
+        await _addClipboardItemToDataService(
+          currentContent,
+          ClipboardItemType.text,
+        );
+
+        // 更新最后已知内容
+        _lastClipboardContent = currentContent;
       }
     } catch (e) {
       // 偶尔的错误可以忽略，但连续错误需要记录
       if (DateTime.now().millisecondsSinceEpoch % 10000 < 300) {
-        print('剪贴板检查错误: $e');
+        print('⚠️ 剪贴板检查错误: $e');
       }
     }
   }
 
-  Future<void> _addClipboardItem(String content, ClipboardItemType type) async {
-    if (content == _lastClipboardContent) return;
-
-    _lastClipboardContent = content;
-
-    // Remove existing item with same content
-    _items.removeWhere((item) => item.content == content);
-
-    // Add new item at the beginning
-    final item = ClipboardItem(
-      id: _generateId(),
-      content: content,
-      type: type,
-      createdAt: DateTime.now(),
-    );
-
-    _items.insert(0, item);
-
-    // Keep only maxItems
-    if (_items.length > maxItems) {
-      _items.removeRange(maxItems, _items.length);
-    }
-
-    _controller.add(_items);
-    print('✓ 剪贴板项目已添加，当前共 ${_items.length} 条记录');
-  }
-
-  String _generateId() {
-    return DateTime.now().millisecondsSinceEpoch.toString() +
-        math.Random().nextInt(1000).toString();
-  }
-
-  Future<void> copyToClipboard(String content) async {
+  Future<void> _addClipboardItemToDataService(
+    String content,
+    ClipboardItemType type,
+  ) async {
     try {
-      await Clipboard.setData(ClipboardData(text: content));
+      // 使用数据服务添加项目（统一的存储和内存管理）
+      // 通过 ClipboardController 添加剪贴板项目
+      try {
+        final controller = Get.find<ClipboardController>();
+        await controller.addItem(content, type: type);
+        print('✅ 剪贴板项目已添加到 ClipboardController');
+      } catch (e) {
+        debugPrint('❌ 未找到 ClipboardController: $e');
+      }
     } catch (e) {
-      print('Error copying to clipboard: $e');
+      print('❌ 传递剪贴板项目到数据服务失败: $e');
     }
-  }
-
-  Future<void> clearHistory() async {
-    _items.clear();
-    _controller.add(_items);
-    print('✓ 剪贴板历史已清空');
-  }
-
-  void dispose() {
-    _clipboardTimer?.cancel();
-    _isWatching = false;
-    _controller.close();
   }
 
   Future<void> _addCurrentClipboardContent() async {
     try {
-      print('正在读取当前剪贴板内容...');
+      print('📖 正在读取当前剪贴板内容...');
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data?.text != null && data!.text!.isNotEmpty) {
         final content = data.text!;
@@ -169,8 +133,9 @@ class ClipboardService {
           '内容预览: ${content.length > 50 ? "${content.substring(0, 50)}..." : content}',
         );
 
-        await _addClipboardItem(content, ClipboardItemType.text);
-        print('✓ 当前剪贴板内容已添加到历史记录');
+        await _addClipboardItemToDataService(content, ClipboardItemType.text);
+        _lastClipboardContent = content;
+        print('✓ 当前剪贴板内容已添加到数据服务');
       } else {
         print('⚠️ 当前剪贴板为空或无文本内容');
       }
@@ -179,19 +144,41 @@ class ClipboardService {
     }
   }
 
-  void _addBasicSampleData() {
-    if (_items.isEmpty) {
-      print('⚠️ 添加基本示例数据，因为无法获取剪贴板内容');
-      _items.add(
-        ClipboardItem(
-          id: _generateId(),
-          content: '欢迎使用剪贴板管理器！请复制一些文本来开始使用。',
-          type: ClipboardItemType.text,
-          createdAt: DateTime.now(),
-        ),
-      );
-      _controller.add(_items);
-      print('✓ 已添加基本示例数据');
+  /// 停止监听
+  void stopWatching() {
+    if (_isWatching) {
+      _clipboardTimer?.cancel();
+      _isWatching = false;
+      print('⏸️ 剪贴板监听已停止');
     }
+  }
+
+  /// 重新开始监听
+  Future<void> resumeWatching() async {
+    if (!_isWatching) {
+      await _startWatching();
+      print('▶️ 剪贴板监听已恢复');
+    }
+  }
+
+  /// 检查是否正在监听
+  bool get isWatching => _isWatching;
+
+  /// 获取最后已知的剪贴板内容
+  String? get lastClipboardContent => _lastClipboardContent;
+
+  /// 手动触发剪贴板检查
+  Future<void> manualCheck() async {
+    print('🔄 手动触发剪贴板检查...');
+    await _checkClipboardChange();
+  }
+
+  /// 资源清理
+  void dispose() {
+    print('🚪 关闭剪贴板监听服务...');
+    _clipboardTimer?.cancel();
+    _isWatching = false;
+    _isInitializing = false;
+    print('✅ 剪贴板监听服务已关闭');
   }
 }

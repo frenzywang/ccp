@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import '../services/hotkey_service.dart';
-import '../services/clipboard_service.dart';
+import '../services/clipboard_data_service.dart';
+import 'clipboard_controller.dart';
 
 class SettingsController extends GetxController {
   final HotkeyService _hotkeyService = HotkeyService();
-  final ClipboardService _clipboardService = ClipboardService();
+  final ClipboardDataService _clipboardDataService = ClipboardDataService();
 
   final RxString selectedKey = 'KeyV'.obs;
   final Rx<Set<HotKeyModifier>> selectedModifiers = Rx({
@@ -37,7 +38,8 @@ class SettingsController extends GetxController {
   }
 
   void loadCurrentSettings() {
-    maxItems.value = _clipboardService.maxItems;
+    // maxItems 现在在 DataManager 中管理，设置为默认值
+    maxItems.value = 50;
   }
 
   void startRecording() {
@@ -141,7 +143,7 @@ class SettingsController extends GetxController {
         selectedKey.value,
         selectedModifiers.value.toList(),
       );
-      _clipboardService.maxItems = maxItems.value;
+      // maxItems 现在由 DataManager 管理，这里只保存热键配置
 
       Get.snackbar('成功', '设置已保存');
     } catch (e) {
@@ -168,7 +170,14 @@ class SettingsController extends GetxController {
     );
 
     if (confirmed == true) {
-      await _clipboardService.clearHistory();
+      // 通过 ClipboardController 清空历史
+      try {
+        final controller = Get.find<ClipboardController>();
+        await controller.clearHistory();
+        debugPrint('✅ 通过 ClipboardController 清空历史完成');
+      } catch (e) {
+        debugPrint('❌ 清空历史失败: $e');
+      }
       Get.snackbar('成功', '历史记录已清空');
     }
   }

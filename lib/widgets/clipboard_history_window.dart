@@ -13,15 +13,15 @@ class ClipboardHistoryWindow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print('🏗️ ClipboardHistoryWindow build开始');
+    debugPrint('🏗️ ClipboardHistoryWindow build开始');
 
     // 确保ClipboardController已初始化
     ClipboardController controller;
     try {
       controller = Get.find<ClipboardController>();
-      print('✅ 找到现有的ClipboardController实例');
+      debugPrint('✅ 找到现有的ClipboardController实例');
     } catch (e) {
-      print('⚠️ 未找到ClipboardController，创建新实例: $e');
+      debugPrint('⚠️ 未找到ClipboardController，创建新实例: $e');
       controller = Get.put(ClipboardController(), permanent: true);
     }
 
@@ -54,7 +54,6 @@ class _ClipboardHistoryPage extends StatefulWidget {
 class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
   final TextEditingController _searchController = TextEditingController();
   final RxInt selectedIndex = 0.obs;
-  final RxList<ClipboardItem> filteredItems = <ClipboardItem>[].obs;
 
   bool _isProcessingKeyEvent = false;
   Timer? _keyEventTimer;
@@ -63,28 +62,26 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
   @override
   void initState() {
     super.initState();
-    print('🏗️ _ClipboardHistoryPageState initState开始');
+    debugPrint('🏗️ _ClipboardHistoryPageState initState开始');
 
     _controller = widget.controller;
-    _searchController.addListener(_filterItems);
 
-    // 监听controller的items变化
-    ever(_controller.items, (List<ClipboardItem> items) {
-      print('📊 检测到items变化: ${items.length} 条记录');
-      _filterItems();
+    // 直接使用controller的过滤结果，不需要额外监听
+    // filteredItems 将直接从 controller.filteredItems 获取
+
+    // 监听搜索框变化，使用controller的搜索功能
+    _searchController.addListener(() {
+      _controller.searchItems(_searchController.text);
     });
 
-    // 立即刷新数据
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      print('🔄 PostFrameCallback: 开始刷新剪贴板数据...');
-
-      // 强制刷新剪贴板内容
-      await _controller.refreshClipboard();
-
-      // 初始化筛选
-      _filterItems();
-
-      print('✅ PostFrameCallback: 数据刷新完成');
+    // 立即应用过滤（数据已经在内存中）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('🔄 PostFrameCallback: 应用初始过滤...');
+      debugPrint('📊 PostFrameCallback: 当前数据总数 = ${_controller.items.length}');
+      _controller.refreshData();
+      debugPrint(
+        '✅ PostFrameCallback: 过滤应用完成, filteredItems = ${_controller.filteredItems.length}',
+      );
     });
   }
 
@@ -95,23 +92,8 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
     super.dispose();
   }
 
-  void _filterItems() {
-    final query = _searchController.text.toLowerCase();
-
-    if (query.isEmpty) {
-      filteredItems.value = _controller.items.toList();
-    } else {
-      filteredItems.value = _controller.items
-          .where((item) => item.content.toLowerCase().contains(query))
-          .toList();
-    }
-
-    selectedIndex.value = 0;
-    print('🔍 筛选结果: ${filteredItems.length} 条记录');
-  }
-
   void _onItemTap(ClipboardItem item) {
-    print(
+    debugPrint(
       '🎯 用户选择了项目: ${item.content.length > 50 ? "${item.content.substring(0, 50)}..." : item.content}',
     );
     widget.onItemSelected?.call(item);
@@ -133,7 +115,7 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
 
       return KeyEventResult.handled;
     } catch (e) {
-      print('❌ 键盘事件处理错误: $e');
+      debugPrint('❌ 键盘事件处理错误: $e');
       _isProcessingKeyEvent = false;
       return KeyEventResult.handled;
     }
@@ -146,9 +128,9 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
       if (HardwareKeyboard.instance.isMetaPressed) {
         final digitIndex =
             event.logicalKey.keyId - LogicalKeyboardKey.digit1.keyId;
-        if (digitIndex < filteredItems.length) {
-          print('⚡ 快捷键 Cmd+${digitIndex + 1} 选择第${digitIndex + 1}项');
-          _onItemTap(filteredItems[digitIndex]);
+        if (digitIndex < _controller.filteredItems.length) {
+          debugPrint('⚡ 快捷键 Cmd+${digitIndex + 1} 选择第${digitIndex + 1}项');
+          _onItemTap(_controller.filteredItems[digitIndex]);
           return;
         }
       }
@@ -158,19 +140,19 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
       case LogicalKeyboardKey.arrowUp:
         selectedIndex.value = (selectedIndex.value - 1).clamp(
           0,
-          filteredItems.length - 1,
+          _controller.filteredItems.length - 1,
         );
         break;
       case LogicalKeyboardKey.arrowDown:
         selectedIndex.value = (selectedIndex.value + 1).clamp(
           0,
-          filteredItems.length - 1,
+          _controller.filteredItems.length - 1,
         );
         break;
       case LogicalKeyboardKey.enter:
-        if (filteredItems.isNotEmpty &&
-            selectedIndex.value < filteredItems.length) {
-          _onItemTap(filteredItems[selectedIndex.value]);
+        if (_controller.filteredItems.isNotEmpty &&
+            selectedIndex.value < _controller.filteredItems.length) {
+          _onItemTap(_controller.filteredItems[selectedIndex.value]);
         }
         break;
       case LogicalKeyboardKey.escape:
@@ -229,7 +211,7 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
                     const Spacer(),
                     IconButton(
                       onPressed: () {
-                        print('🚪 关闭按钮被点击');
+                        debugPrint('🚪 关闭按钮被点击');
                         widget.onClose?.call();
                       },
                       icon: const Icon(Icons.close, size: 18),
@@ -266,154 +248,148 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
               ),
               // Content
               Expanded(
-                child: GetX<ClipboardController>(
-                  init: _controller, // 明确指定使用的控制器实例
-                  builder: (controller) {
-                    print('🎨 UI Builder: items=${controller.items.length}');
+                child: Obx(() {
+                  debugPrint(
+                    '🎨 UI Builder: items=${_controller.items.length}',
+                  );
 
-                    print('📱 显示数据界面，filteredItems=${filteredItems.length}');
-                    return Obx(() {
-                      if (filteredItems.isEmpty) {
-                        print('📭 显示空状态界面');
-                        return const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.content_paste_off,
-                                size: 64,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(height: 16),
-                              Text(
-                                '暂无剪贴板历史',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w500,
+                  debugPrint(
+                    '📱 显示数据界面，filteredItems=${_controller.filteredItems.length}',
+                  );
+                  if (_controller.filteredItems.isEmpty) {
+                    debugPrint('📭 显示空状态界面');
+                    return const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.content_paste_off,
+                            size: 64,
+                            color: Colors.grey,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            '暂无剪贴板历史',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            '复制一些文本开始使用',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  debugPrint(
+                    '📋 显示列表界面，${_controller.filteredItems.length} 条记录',
+                  );
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: _controller.filteredItems.length,
+                    itemBuilder: (context, index) {
+                      final item = _controller.filteredItems[index];
+
+                      return Obx(() {
+                        final isSelected = index == selectedIndex.value;
+
+                        return Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          child: Material(
+                            color: isSelected
+                                ? Colors.blue.withOpacity(0.1)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => _onItemTap(item),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    // 序号显示
+                                    Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? Colors.blue
+                                            : Colors.grey.shade400,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '${index + 1}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Icon(
+                                      Icons.text_snippet,
+                                      color: isSelected
+                                          ? Colors.blue
+                                          : Colors.grey.shade600,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _truncateText(item.content, 100),
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
+                                              color: isSelected
+                                                  ? Colors.blue
+                                                  : Colors.black87,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _formatTime(item.createdAt),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              SizedBox(height: 8),
-                              Text(
-                                '复制一些文本开始使用',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         );
-                      }
-
-                      print('📋 显示列表界面，${filteredItems.length} 条记录');
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        itemCount: filteredItems.length,
-                        itemBuilder: (context, index) {
-                          final item = filteredItems[index];
-
-                          return Obx(() {
-                            final isSelected = index == selectedIndex.value;
-
-                            return Container(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              child: Material(
-                                color: isSelected
-                                    ? Colors.blue.withOpacity(0.1)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(8),
-                                  onTap: () => _onItemTap(item),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Row(
-                                      children: [
-                                        // 序号显示
-                                        Container(
-                                          width: 24,
-                                          height: 24,
-                                          decoration: BoxDecoration(
-                                            color: isSelected
-                                                ? Colors.blue
-                                                : Colors.grey.shade400,
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Center(
-                                            child: Text(
-                                              '${index + 1}',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Icon(
-                                          Icons.text_snippet,
-                                          color: isSelected
-                                              ? Colors.blue
-                                              : Colors.grey.shade600,
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                _truncateText(
-                                                  item.content,
-                                                  100,
-                                                ),
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: isSelected
-                                                      ? FontWeight.w600
-                                                      : FontWeight.normal,
-                                                  color: isSelected
-                                                      ? Colors.blue
-                                                      : Colors.black87,
-                                                ),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                _formatTime(item.createdAt),
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey.shade600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          });
-                        },
-                      );
-                    });
-                  },
-                ),
+                      });
+                    },
+                  );
+                }),
               ),
               // Footer
               Obx(() {
-                if (filteredItems.isEmpty) return const SizedBox.shrink();
+                if (_controller.filteredItems.isEmpty)
+                  return const SizedBox.shrink();
 
                 return Container(
                   padding: const EdgeInsets.all(12),
@@ -428,7 +404,7 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '共 ${filteredItems.length} 条记录',
+                        '共 ${_controller.filteredItems.length} 条记录',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,

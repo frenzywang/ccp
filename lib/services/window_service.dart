@@ -39,12 +39,17 @@ class WindowService {
         print('✨ 没有旧窗口，直接创建新窗口');
       }
 
-      // 总是创建新窗口
+      // 总是创建新窗口，传递当前剪贴板数据
       print('📝 开始创建新的剪贴板历史窗口...');
+
+      // 子窗口将通过Channel从主进程获取数据
+      print('📊 子窗口将通过Channel通信获取数据');
+
       final window = await DesktopMultiWindow.createWindow(
         jsonEncode({
           'windowType': 'clipboard_history',
           'title': 'Clipboard History',
+          'useChannelCommunication': true,
         }),
       );
 

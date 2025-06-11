@@ -3,6 +3,8 @@ import 'dart:io';
 import '../models/clipboard_item.dart';
 import '../models/hotkey_config.dart';
 
+/// 纯存储服务，只负责 Hive 存储操作
+/// 不涉及内存数据管理和业务逻辑
 class StorageService {
   static final StorageService _instance = StorageService._internal();
   factory StorageService() => _instance;
@@ -17,6 +19,7 @@ class StorageService {
   // Getters for boxes
   Box<ClipboardItem>? get clipboardBox => _clipboardBox;
   Box<HotkeyConfig>? get hotkeyBox => _hotkeyBox;
+  bool get isInitialized => _isInitialized;
 
   Future<void> initialize() async {
     if (_isInitialized) {
@@ -123,11 +126,6 @@ class StorageService {
       print('📦 开始打开 Hive boxes...');
 
       // 打开剪贴板 box
-      print('📋 检查剪贴板 box 状态...');
-      print(
-        '   isBoxOpen("clipboard_history"): ${Hive.isBoxOpen('clipboard_history')}',
-      );
-
       if (!Hive.isBoxOpen('clipboard_history')) {
         print('📂 正在打开剪贴板 box...');
         _clipboardBox = await Hive.openBox<ClipboardItem>('clipboard_history');
@@ -138,20 +136,9 @@ class StorageService {
         print('✓ 使用已存在的剪贴板 box: clipboard_history');
       }
 
-      print('📊 剪贴板 box 状态:');
-      print('   box != null: ${_clipboardBox != null}');
-      if (_clipboardBox != null) {
-        print('   box.isOpen: ${_clipboardBox!.isOpen}');
-        print('   box.length: ${_clipboardBox!.length}');
-        print('   box.keys.length: ${_clipboardBox!.keys.length}');
-      }
+      print('📊 剪贴板 box 状态: ${_clipboardBox?.length ?? 0} 条记录');
 
       // 打开热键设置 box
-      print('🔑 检查热键设置 box 状态...');
-      print(
-        '   isBoxOpen("hotkey_settings"): ${Hive.isBoxOpen('hotkey_settings')}',
-      );
-
       if (!Hive.isBoxOpen('hotkey_settings')) {
         print('📂 正在打开热键设置 box...');
         _hotkeyBox = await Hive.openBox<HotkeyConfig>('hotkey_settings');
@@ -162,23 +149,16 @@ class StorageService {
         print('✓ 使用已存在的热键设置 box: hotkey_settings');
       }
 
-      print('📊 热键设置 box 状态:');
-      print('   box != null: ${_hotkeyBox != null}');
-      if (_hotkeyBox != null) {
-        print('   box.isOpen: ${_hotkeyBox!.isOpen}');
-        print('   box.length: ${_hotkeyBox!.length}');
-      }
+      print('📊 热键设置 box 状态: ${_hotkeyBox?.length ?? 0} 条记录');
     } catch (e) {
       print('⚠️ 打开 boxes 失败，将使用内存数据: $e');
-      print('📍 错误堆栈: ${StackTrace.current}');
       // 如果打开失败，boxes 保持为 null，其他方法会处理这种情况
     }
   }
 
-  // 便捷方法：获取剪贴板项目
-  List<ClipboardItem> getClipboardItems() {
-    print('🔍 StorageService.getClipboardItems() 被调用');
-    print('📊 Box状态: _clipboardBox == null: ${_clipboardBox == null}');
+  /// 从存储加载所有剪贴板项目
+  List<ClipboardItem> loadClipboardItems() {
+    print('🔍 StorageService.loadClipboardItems() 被调用');
 
     if (_clipboardBox == null) {
       print('⚠️ 剪贴板 box 未初始化，返回空列表');
@@ -186,114 +166,163 @@ class StorageService {
     }
 
     try {
-      print('📦 尝试从 Hive box 获取数据...');
       final values = _clipboardBox!.values;
-      print('📊 Box 中有 ${values.length} 条原始记录');
+      print('📊 从 Hive 读取 ${values.length} 条记录');
 
       final items = values.toList();
-      print('📋 转换为列表: ${items.length} 条记录');
-
       items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      print('🔄 排序完成，返回 ${items.length} 条记录');
 
-      if (items.isNotEmpty) {
-        print(
-          '📝 最新记录预览: ${items.first.content.length > 50 ? "${items.first.content.substring(0, 50)}..." : items.first.content}',
-        );
-      }
-
+      print('✅ 成功加载并排序 ${items.length} 条剪贴板记录');
       return items;
     } catch (e) {
-      print('❌ 获取剪贴板项目失败: $e');
-      print('📍 错误堆栈: ${StackTrace.current}');
+      print('❌ 从存储加载剪贴板项目失败: $e');
       return [];
     }
   }
 
-  // 便捷方法：保存剪贴板项目
+  /// 保存剪贴板项目到存储
   Future<void> saveClipboardItem(ClipboardItem item) async {
     if (_clipboardBox == null) {
-      print('⚠️ 剪贴板 box 未初始化，无法保存');
+      print('⚠️ 剪贴板 box 未初始化，跳过保存');
       return;
     }
+
     try {
-      await _clipboardBox!.add(item);
+      await _clipboardBox!.put(item.id, item);
+      print('💾 剪贴板项目已保存到 Hive: ${item.id}');
     } catch (e) {
       print('❌ 保存剪贴板项目失败: $e');
     }
   }
 
-  // 便捷方法：删除剪贴板项目
-  Future<void> deleteClipboardItem(int index) async {
+  /// 批量保存剪贴板项目
+  Future<void> saveClipboardItems(List<ClipboardItem> items) async {
     if (_clipboardBox == null) {
-      print('⚠️ 剪贴板 box 未初始化，无法删除');
+      print('⚠️ 剪贴板 box 未初始化，跳过批量保存');
       return;
     }
+
     try {
-      await _clipboardBox!.deleteAt(index);
+      final Map<String, ClipboardItem> itemsMap = {
+        for (var item in items) item.id: item,
+      };
+
+      await _clipboardBox!.putAll(itemsMap);
+      print('💾 批量保存 ${items.length} 个剪贴板项目到 Hive');
+    } catch (e) {
+      print('❌ 批量保存剪贴板项目失败: $e');
+    }
+  }
+
+  /// 清空剪贴板历史记录
+  Future<void> clearClipboardHistory() async {
+    if (_clipboardBox == null) {
+      print('⚠️ 剪贴板 box 未初始化，跳过清空');
+      return;
+    }
+
+    try {
+      await _clipboardBox!.clear();
+      print('🗑️ 剪贴板历史记录已从 Hive 清空');
+    } catch (e) {
+      print('❌ 清空剪贴板历史记录失败: $e');
+    }
+  }
+
+  /// 删除指定的剪贴板项目
+  Future<void> deleteClipboardItem(String itemId) async {
+    if (_clipboardBox == null) {
+      print('⚠️ 剪贴板 box 未初始化，跳过删除');
+      return;
+    }
+
+    try {
+      await _clipboardBox!.delete(itemId);
+      print('🗑️ 剪贴板项目已删除: $itemId');
     } catch (e) {
       print('❌ 删除剪贴板项目失败: $e');
     }
   }
 
-  // 便捷方法：清空剪贴板历史
-  Future<void> clearClipboardHistory() async {
-    if (_clipboardBox == null) {
-      print('⚠️ 剪贴板 box 未初始化，无法清空');
-      return;
-    }
-    try {
-      await _clipboardBox!.clear();
-    } catch (e) {
-      print('❌ 清空剪贴板历史失败: $e');
-    }
-  }
+  // === 热键配置相关方法 ===
 
-  // 便捷方法：获取热键配置
-  HotkeyConfig? getHotkeyConfig() {
+  /// 获取热键配置
+  HotkeyConfig? getHotkeyConfig(String key) {
     if (_hotkeyBox == null) {
-      print('⚠️ 热键 box 未初始化，返回 null');
+      print('⚠️ 热键 box 未初始化');
       return null;
     }
+
     try {
-      return _hotkeyBox!.get('hotkey_config');
+      return _hotkeyBox!.get(key);
     } catch (e) {
       print('❌ 获取热键配置失败: $e');
       return null;
     }
   }
 
-  // 便捷方法：保存热键配置
-  Future<void> saveHotkeyConfig(HotkeyConfig config) async {
+  /// 保存热键配置
+  Future<void> saveHotkeyConfig(String key, HotkeyConfig config) async {
     if (_hotkeyBox == null) {
-      print('⚠️ 热键 box 未初始化，无法保存');
+      print('⚠️ 热键 box 未初始化，跳过保存');
       return;
     }
+
     try {
-      await _hotkeyBox!.put('hotkey_config', config);
+      await _hotkeyBox!.put(key, config);
+      print('🔑 热键配置已保存: $key');
     } catch (e) {
       print('❌ 保存热键配置失败: $e');
     }
   }
 
-  // 检查是否已初始化
-  bool get isInitialized => _isInitialized;
-
-  // 资源清理
-  void dispose() {
-    print('🧹 StorageService: 开始清理资源...');
+  /// 删除热键配置
+  Future<void> deleteHotkeyConfig(String key) async {
+    if (_hotkeyBox == null) {
+      print('⚠️ 热键 box 未初始化，跳过删除');
+      return;
+    }
 
     try {
-      _clipboardBox?.close();
-      _clipboardBox = null;
-
-      _hotkeyBox?.close();
-      _hotkeyBox = null;
-
-      _isInitialized = false;
-      print('✓ StorageService: 资源清理完成');
+      await _hotkeyBox!.delete(key);
+      print('🗑️ 热键配置已删除: $key');
     } catch (e) {
-      print('⚠️ StorageService 清理时出错: $e');
+      print('❌ 删除热键配置失败: $e');
+    }
+  }
+
+  /// 获取所有热键配置
+  Map<String, HotkeyConfig> getAllHotkeyConfigs() {
+    if (_hotkeyBox == null) {
+      print('⚠️ 热键 box 未初始化，返回空配置');
+      return {};
+    }
+
+    try {
+      final Map<String, HotkeyConfig> configs = {};
+      for (final key in _hotkeyBox!.keys) {
+        final config = _hotkeyBox!.get(key);
+        if (config != null) {
+          configs[key.toString()] = config;
+        }
+      }
+
+      print('🔑 获取到 ${configs.length} 个热键配置');
+      return configs;
+    } catch (e) {
+      print('❌ 获取所有热键配置失败: $e');
+      return {};
+    }
+  }
+
+  /// 关闭存储服务
+  Future<void> dispose() async {
+    try {
+      await _clipboardBox?.close();
+      await _hotkeyBox?.close();
+      print('🚪 StorageService 已关闭');
+    } catch (e) {
+      print('⚠️ 关闭 StorageService 时出错: $e');
     }
   }
 }

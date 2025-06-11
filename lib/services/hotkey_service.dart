@@ -38,12 +38,15 @@ class HotkeyService {
   Future<void> _loadHotkeyConfig() async {
     try {
       // 从存储服务获取配置
-      _currentConfig = _storageService.getHotkeyConfig();
+      _currentConfig = _storageService.getHotkeyConfig('default_hotkey');
 
       if (_currentConfig == null) {
         print('📝 未找到热键配置，创建默认配置');
         _currentConfig = HotkeyConfig.defaultConfig();
-        await _storageService.saveHotkeyConfig(_currentConfig!);
+        await _storageService.saveHotkeyConfig(
+          'default_hotkey',
+          _currentConfig!,
+        );
       }
 
       _defaultKeyCode = _currentConfig!.keyCode;
@@ -73,7 +76,7 @@ class HotkeyService {
       );
 
       // 保存到存储服务
-      await _storageService.saveHotkeyConfig(newConfig);
+      await _storageService.saveHotkeyConfig('default_hotkey', newConfig);
       _currentConfig = newConfig;
 
       _defaultKeyCode = keyCode;
