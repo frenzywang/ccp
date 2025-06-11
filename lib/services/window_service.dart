@@ -49,7 +49,7 @@ class WindowService {
       );
 
       _historyWindowId = window.windowId;
-      print('🆔 新窗口创建成功，ID: ${_historyWindowId}');
+      print('🆔 新窗口创建成功，ID: $_historyWindowId');
 
       // 设置窗口属性
       print('⚙️ 设置窗口属性...');

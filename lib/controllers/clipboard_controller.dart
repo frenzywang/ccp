@@ -88,8 +88,7 @@ class ClipboardController extends GetxController {
             print('⚠️ Flutter路径初始化失败，使用应用支持目录: $e');
             // 手动指定应用支持目录
             final documentsDir =
-                Directory.systemTemp.parent.path +
-                '/Library/Application Support/ccp';
+                '${Directory.systemTemp.parent.path}/Library/Application Support/ccp';
             await Directory(documentsDir).create(recursive: true);
             Hive.init(documentsDir);
             print('📦 Hive 使用应用支持目录初始化完成: $documentsDir');
@@ -178,7 +177,7 @@ class ClipboardController extends GetxController {
       if (currentContent.isNotEmpty &&
           currentContent != lastClipboardContent.value) {
         print(
-          '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? currentContent.substring(0, 30) + "..." : currentContent}',
+          '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? "${currentContent.substring(0, 30)}..." : currentContent}',
         );
         await addClipboardItem(currentContent, ClipboardItemType.text);
       }
@@ -213,7 +212,7 @@ class ClipboardController extends GetxController {
         await _clipboardBox!.put(updatedItem.id, updatedItem);
         items.insert(0, updatedItem);
         print(
-          '📝 已存在的内容移动到顶部: ${content.length > 30 ? content.substring(0, 30) + "..." : content}',
+          '📝 已存在的内容移动到顶部: ${content.length > 30 ? "${content.substring(0, 30)}..." : content}',
         );
       } else {
         // 添加新项目
@@ -227,7 +226,7 @@ class ClipboardController extends GetxController {
         await _clipboardBox!.put(item.id, item);
         items.insert(0, item);
         print(
-          '➕ 新增剪贴板项目: ${content.length > 30 ? content.substring(0, 30) + "..." : content}',
+          '➕ 新增剪贴板项目: ${content.length > 30 ? "${content.substring(0, 30)}..." : content}',
         );
       }
 
@@ -277,7 +276,7 @@ class ClipboardController extends GetxController {
         final content = data.text!;
         print('✓ 获取到当前剪贴板内容: ${content.length} 字符');
         print(
-          '内容预览: ${content.length > 50 ? content.substring(0, 50) + "..." : content}',
+          '内容预览: ${content.length > 50 ? "${content.substring(0, 50)}..." : content}',
         );
 
         // 总是添加当前内容，addClipboardItem会处理重复逻辑

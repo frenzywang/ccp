@@ -1,7 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:system_tray/system_tray.dart';
-import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'dart:io' show Platform, exit, Process;
 import 'dart:convert';
@@ -12,14 +9,12 @@ import 'services/system_tray_service.dart';
 import 'services/hotkey_service.dart';
 import 'widgets/clipboard_history_window.dart';
 import 'widgets/settings_window.dart';
-import 'models/clipboard_item.dart';
 import 'package:get/get.dart';
 import 'controllers/clipboard_controller.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 // 添加自动粘贴功能的导入
 import 'dart:ffi';
-import 'package:ffi/ffi.dart';
 
 // macOS 系统调用
 final class CGPoint extends Struct {
@@ -188,10 +183,6 @@ class MainWindow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Clipboard Manager (GetX)'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

@@ -94,7 +94,7 @@ class ClipboardService {
           currentContent.isNotEmpty &&
           currentContent != _lastClipboardContent) {
         print(
-          '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? currentContent.substring(0, 30) + "..." : currentContent}',
+          '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? "${currentContent.substring(0, 30)}..." : currentContent}',
         );
         await _addClipboardItem(currentContent, ClipboardItemType.text);
       }
@@ -166,7 +166,7 @@ class ClipboardService {
         final content = data.text!;
         print('✓ 获取到当前剪贴板内容: ${content.length} 字符');
         print(
-          '内容预览: ${content.length > 50 ? content.substring(0, 50) + "..." : content}',
+          '内容预览: ${content.length > 50 ? "${content.substring(0, 50)}..." : content}',
         );
 
         await _addClipboardItem(content, ClipboardItemType.text);

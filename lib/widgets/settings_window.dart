@@ -7,7 +7,7 @@ import '../services/clipboard_service.dart';
 class SettingsWindow extends StatefulWidget {
   final VoidCallback? onClose;
 
-  const SettingsWindow({Key? key, this.onClose}) : super(key: key);
+  const SettingsWindow({super.key, this.onClose});
 
   @override
   State<SettingsWindow> createState() => _SettingsWindowState();

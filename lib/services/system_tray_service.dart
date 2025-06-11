@@ -36,7 +36,7 @@ class SystemTrayService {
       print('System tray menu built successfully');
     } catch (e) {
       print('Error initializing system tray: $e');
-      throw e; // Re-throw to let caller handle
+      rethrow; // Re-throw to let caller handle
     }
   }
 
