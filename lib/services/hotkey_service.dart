@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
-import 'package:hive/hive.dart';
 import 'dart:async';
 import 'window_service.dart';
+import 'storage_service.dart';
 import '../models/hotkey_config.dart';
 
 class HotkeyService {
@@ -18,8 +18,8 @@ class HotkeyService {
   Timer? _debounceTimer;
   bool _isHotkeyProcessing = false;
 
-  // Hive box
-  Box<HotkeyConfig>? _hotkeyBox;
+  // 存储服务
+  final StorageService _storageService = StorageService();
   HotkeyConfig? _currentConfig;
 
   // Default hotkey: Cmd+Shift+V
@@ -30,54 +30,28 @@ class HotkeyService {
   ];
 
   Future<void> initialize() async {
-    await _initializeHive();
+    await _storageService.initialize();
     await _loadHotkeyConfig();
     await _cleanupAndRegister();
   }
 
-  Future<void> _initializeHive() async {
-    try {
-      // 注册适配器（如果还没注册）
-      if (!Hive.isAdapterRegistered(2)) {
-        Hive.registerAdapter(HotkeyConfigAdapter());
-      }
-
-      // 打开 box
-      if (!Hive.isBoxOpen('hotkey_settings')) {
-        _hotkeyBox = await Hive.openBox<HotkeyConfig>('hotkey_settings');
-        debugPrint('📦 Hive hotkey box 已打开: hotkey_settings');
-      } else {
-        _hotkeyBox = Hive.box<HotkeyConfig>('hotkey_settings');
-        debugPrint('📦 使用已存在的 Hive hotkey box: hotkey_settings');
-      }
-    } catch (e) {
-      debugPrint('❌ 初始化热键 Hive 失败: $e');
-    }
-  }
-
   Future<void> _loadHotkeyConfig() async {
     try {
-      if (_hotkeyBox == null) {
-        debugPrint('⚠️ Hive box 未初始化，使用默认配置');
-        _setDefaultConfig();
-        return;
-      }
-
-      // 从 Hive 获取配置
-      _currentConfig = _hotkeyBox!.get('hotkey_config');
+      // 从存储服务获取配置
+      _currentConfig = _storageService.getHotkeyConfig();
 
       if (_currentConfig == null) {
-        debugPrint('📝 未找到热键配置，创建默认配置');
+        print('📝 未找到热键配置，创建默认配置');
         _currentConfig = HotkeyConfig.defaultConfig();
-        await _hotkeyBox!.put('hotkey_config', _currentConfig!);
+        await _storageService.saveHotkeyConfig(_currentConfig!);
       }
 
       _defaultKeyCode = _currentConfig!.keyCode;
       _defaultModifiers = _currentConfig!.hotKeyModifiers;
 
-      debugPrint('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
+      print('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
     } catch (e) {
-      debugPrint('❌ 加载热键配置失败: $e');
+      print('❌ 加载热键配置失败: $e');
       _setDefaultConfig();
     }
   }
@@ -92,30 +66,25 @@ class HotkeyService {
     List<HotKeyModifier> modifiers,
   ) async {
     try {
-      if (_hotkeyBox == null) {
-        debugPrint('⚠️ Hive box 未初始化，无法保存配置');
-        return;
-      }
-
       // 创建新的配置对象
       final newConfig = HotkeyConfig(
         keyCode: keyCode,
         modifiers: HotkeyConfig.modifiersToStrings(modifiers),
       );
 
-      // 保存到 Hive
-      await _hotkeyBox!.put('hotkey_config', newConfig);
+      // 保存到存储服务
+      await _storageService.saveHotkeyConfig(newConfig);
       _currentConfig = newConfig;
 
       _defaultKeyCode = keyCode;
       _defaultModifiers = modifiers;
 
-      debugPrint('✅ 热键配置已保存: ${newConfig.getDescription()}');
+      print('✅ 热键配置已保存: ${newConfig.getDescription()}');
 
       // 先清理再重新注册
       await _cleanupAndRegister();
     } catch (e) {
-      debugPrint('❌ 保存热键配置失败: $e');
+      print('❌ 保存热键配置失败: $e');
     }
   }
 
@@ -322,7 +291,7 @@ class HotkeyService {
   }
 
   void dispose() {
-    debugPrint('🧹 HotkeyService: 开始清理资源...');
+    print('🧹 HotkeyService: 开始清理资源...');
 
     // 取消防抖定时器
     _debounceTimer?.cancel();
@@ -332,10 +301,6 @@ class HotkeyService {
     // 清理热键
     _unregisterHotkey();
 
-    // 关闭 Hive box
-    _hotkeyBox?.close();
-    _hotkeyBox = null;
-
-    debugPrint('✓ HotkeyService: 资源清理完成');
+    print('✓ HotkeyService: 资源清理完成');
   }
 }

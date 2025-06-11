@@ -7,11 +7,11 @@ import 'services/clipboard_service.dart';
 import 'services/window_service.dart';
 import 'services/system_tray_service.dart';
 import 'services/hotkey_service.dart';
+import 'services/data_manager.dart';
 import 'widgets/clipboard_history_window.dart';
 import 'widgets/settings_window.dart';
 import 'package:get/get.dart';
 import 'controllers/clipboard_controller.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
 // 添加自动粘贴功能的导入
 import 'dart:ffi';
@@ -219,19 +219,25 @@ class MainWindow extends StatelessWidget {
                       style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const SizedBox(height: 8),
-                    if (controller.isLoading.value)
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 8),
-                          Text('监听中...', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
+                    // 显示监听状态而不是加载状态
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.fiber_manual_record,
+                          size: 12,
+                          color: controller.items.isNotEmpty
+                              ? Colors.green
+                              : Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          controller.items.isNotEmpty ? '监听中...' : '等待复制...',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     if (controller.items.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -386,11 +392,11 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 
 /// 初始化GetX和全局控制器（主窗口）
 Future<void> _initializeGetX() async {
-  debugPrint('🚀 主窗口：初始化GetX和Hive...');
+  debugPrint('🚀 主窗口：初始化GetX和数据管理器...');
 
-  // 初始化 Hive
-  await Hive.initFlutter();
-  debugPrint('📦 Hive 已初始化');
+  // 初始化数据管理器
+  await DataManager().initialize();
+  debugPrint('📦 DataManager 已初始化');
 
   // 注册全局ClipboardController
   Get.put(ClipboardController(), permanent: true);
@@ -402,8 +408,11 @@ Future<void> _initializeGetX() async {
 Future<void> _initializeGetXForSubWindow() async {
   debugPrint('🚀 子窗口：初始化GetX...');
 
-  // 子窗口中ClipboardController会自己处理Hive初始化
-  // 只需要注册控制器即可
+  // 确保数据管理器已初始化（如果没有则初始化）
+  await DataManager().initialize();
+  debugPrint('📦 子窗口：DataManager 确保已初始化');
+
+  // 注册控制器
   Get.put(ClipboardController(), permanent: true);
 
   debugPrint('✅ 子窗口：GetX初始化完成');

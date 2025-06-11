@@ -267,22 +267,14 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
               // Content
               Expanded(
                 child: GetX<ClipboardController>(
+                  init: _controller, // 明确指定使用的控制器实例
                   builder: (controller) {
-                    if (controller.isLoading.value) {
-                      return const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text('正在加载...'),
-                          ],
-                        ),
-                      );
-                    }
+                    print('🎨 UI Builder: items=${controller.items.length}');
 
+                    print('📱 显示数据界面，filteredItems=${filteredItems.length}');
                     return Obx(() {
                       if (filteredItems.isEmpty) {
+                        print('📭 显示空状态界面');
                         return const Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -314,6 +306,7 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
                         );
                       }
 
+                      print('📋 显示列表界面，${filteredItems.length} 条记录');
                       return ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         itemCount: filteredItems.length,
