@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:hive/hive.dart';
@@ -31,7 +32,7 @@ class HotkeyService {
   Future<void> initialize() async {
     await _initializeHive();
     await _loadHotkeyConfig();
-    await _registerHotkey();
+    await _cleanupAndRegister();
   }
 
   Future<void> _initializeHive() async {
@@ -44,20 +45,20 @@ class HotkeyService {
       // 打开 box
       if (!Hive.isBoxOpen('hotkey_settings')) {
         _hotkeyBox = await Hive.openBox<HotkeyConfig>('hotkey_settings');
-        print('📦 Hive hotkey box 已打开: hotkey_settings');
+        debugPrint('📦 Hive hotkey box 已打开: hotkey_settings');
       } else {
         _hotkeyBox = Hive.box<HotkeyConfig>('hotkey_settings');
-        print('📦 使用已存在的 Hive hotkey box: hotkey_settings');
+        debugPrint('📦 使用已存在的 Hive hotkey box: hotkey_settings');
       }
     } catch (e) {
-      print('❌ 初始化热键 Hive 失败: $e');
+      debugPrint('❌ 初始化热键 Hive 失败: $e');
     }
   }
 
   Future<void> _loadHotkeyConfig() async {
     try {
       if (_hotkeyBox == null) {
-        print('⚠️ Hive box 未初始化，使用默认配置');
+        debugPrint('⚠️ Hive box 未初始化，使用默认配置');
         _setDefaultConfig();
         return;
       }
@@ -66,7 +67,7 @@ class HotkeyService {
       _currentConfig = _hotkeyBox!.get('hotkey_config');
 
       if (_currentConfig == null) {
-        print('📝 未找到热键配置，创建默认配置');
+        debugPrint('📝 未找到热键配置，创建默认配置');
         _currentConfig = HotkeyConfig.defaultConfig();
         await _hotkeyBox!.put('hotkey_config', _currentConfig!);
       }
@@ -74,9 +75,9 @@ class HotkeyService {
       _defaultKeyCode = _currentConfig!.keyCode;
       _defaultModifiers = _currentConfig!.hotKeyModifiers;
 
-      print('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
+      debugPrint('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
     } catch (e) {
-      print('❌ 加载热键配置失败: $e');
+      debugPrint('❌ 加载热键配置失败: $e');
       _setDefaultConfig();
     }
   }
@@ -92,7 +93,7 @@ class HotkeyService {
   ) async {
     try {
       if (_hotkeyBox == null) {
-        print('⚠️ Hive box 未初始化，无法保存配置');
+        debugPrint('⚠️ Hive box 未初始化，无法保存配置');
         return;
       }
 
@@ -109,17 +110,17 @@ class HotkeyService {
       _defaultKeyCode = keyCode;
       _defaultModifiers = modifiers;
 
-      print('✅ 热键配置已保存: ${newConfig.getDescription()}');
+      debugPrint('✅ 热键配置已保存: ${newConfig.getDescription()}');
 
       // 先清理再重新注册
       await _cleanupAndRegister();
     } catch (e) {
-      print('❌ 保存热键配置失败: $e');
+      debugPrint('❌ 保存热键配置失败: $e');
     }
   }
 
   Future<void> _cleanupAndRegister() async {
-    print('🔄 重新配置热键...');
+    debugPrint('🔄 重新配置热键...');
 
     // 1. 取消防抖定时器
     _debounceTimer?.cancel();
@@ -138,7 +139,7 @@ class HotkeyService {
 
   Future<void> _registerHotkey() async {
     try {
-      print('🔑 注册热键: ${getHotkeyDescription()}');
+      debugPrint('🔑 注册热键: ${getHotkeyDescription()}');
 
       // 使用PhysicalKeyboardKey替代LogicalKeyboardKey以保持一致性
       _currentHotkey = HotKey(
@@ -150,35 +151,35 @@ class HotkeyService {
       await hotKeyManager.register(
         _currentHotkey!,
         keyDownHandler: (hotKey) {
-          print('🔥 热键触发: ${hotKey.key} + ${hotKey.modifiers}');
+          debugPrint('🔥 热键触发: ${hotKey.key} + ${hotKey.modifiers}');
           _handleHotkeyWithDebounce();
         },
       );
 
-      print('✅ 热键注册成功: ${getHotkeyDescription()}');
+      debugPrint('✅ 热键注册成功: ${getHotkeyDescription()}');
     } catch (e) {
-      print('❌ 热键注册失败: $e');
+      debugPrint('❌ 热键注册失败: $e');
       rethrow;
     }
   }
 
   void _handleHotkeyWithDebounce() {
-    print('🎯 热键处理函数被调用');
+    debugPrint('🎯 热键处理函数被调用');
 
     // 如果正在处理热键，忽略新的触发
     if (_isHotkeyProcessing) {
-      print('⚠️ 热键正在处理中，忽略此次触发...');
+      debugPrint('⚠️ 热键正在处理中，忽略此次触发...');
       return;
     }
 
-    print('⏰ 设置防抖定时器...');
+    debugPrint('⏰ 设置防抖定时器...');
 
     // 取消之前的防抖定时器
     _debounceTimer?.cancel();
 
     // 设置新的防抖定时器
     _debounceTimer = Timer(const Duration(milliseconds: 200), () {
-      print('✨ 防抖定时器触发，开始显示剪贴板历史');
+      debugPrint('✨ 防抖定时器触发，开始显示剪贴板历史');
       _isHotkeyProcessing = true;
 
       // 调用回调或默认行为
@@ -191,7 +192,7 @@ class HotkeyService {
       // 延迟重置处理状态，避免快速连续触发
       Timer(const Duration(milliseconds: 500), () {
         _isHotkeyProcessing = false;
-        print('🔄 热键处理状态已重置');
+        debugPrint('🔄 热键处理状态已重置');
       });
     });
   }
@@ -199,23 +200,23 @@ class HotkeyService {
   Future<void> _showClipboardHistory() async {
     try {
       await WindowService().showClipboardHistory();
-      print('✅ 剪贴板历史显示完成');
+      debugPrint('✅ 剪贴板历史显示完成');
     } catch (e) {
-      print('❌ 显示剪贴板历史出错: $e');
+      debugPrint('❌ 显示剪贴板历史出错: $e');
       _isHotkeyProcessing = false;
     }
   }
 
   Future<void> _unregisterHotkey() async {
-    print('🧹 开始清理热键...');
+    debugPrint('🧹 开始清理热键...');
 
     // 方法1: 清理当前热键
     if (_currentHotkey != null) {
       try {
         await hotKeyManager.unregister(_currentHotkey!);
-        print('✓ 当前热键已取消注册');
+        debugPrint('✓ 当前热键已取消注册');
       } catch (e) {
-        print('⚠️ 取消当前热键失败: $e');
+        debugPrint('⚠️ 取消当前热键失败: $e');
       }
       _currentHotkey = null;
     }
@@ -223,9 +224,9 @@ class HotkeyService {
     // 方法2: 清理所有热键（保险起见）
     try {
       await hotKeyManager.unregisterAll();
-      print('✓ 所有热键已清理');
+      debugPrint('✓ 所有热键已清理');
     } catch (e) {
-      print('⚠️ 清理所有热键失败: $e');
+      debugPrint('⚠️ 清理所有热键失败: $e');
     }
   }
 
@@ -321,7 +322,7 @@ class HotkeyService {
   }
 
   void dispose() {
-    print('🧹 HotkeyService: 开始清理资源...');
+    debugPrint('🧹 HotkeyService: 开始清理资源...');
 
     // 取消防抖定时器
     _debounceTimer?.cancel();
@@ -335,6 +336,6 @@ class HotkeyService {
     _hotkeyBox?.close();
     _hotkeyBox = null;
 
-    print('✓ HotkeyService: 资源清理完成');
+    debugPrint('✓ HotkeyService: 资源清理完成');
   }
 }
