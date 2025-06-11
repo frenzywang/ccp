@@ -338,10 +338,18 @@ class SettingsApp extends StatelessWidget {
       home: SettingsWindow(
         onClose: () async {
           try {
-            // 通知WindowService并关闭窗口
-            await WindowService().closeSettings();
+            debugPrint('🔥 SettingsApp onClose 被调用，准备关闭设置窗口');
+            debugPrint('🆔 当前窗口ID: $windowId');
+
+            // 直接关闭窗口
+            final controller = WindowController.fromWindowId(windowId);
+            debugPrint('📋 创建 WindowController 实例成功');
+
+            await controller.close();
+            debugPrint('✅ 设置窗口已关闭');
           } catch (e) {
-            debugPrint('Error closing settings window: $e');
+            debugPrint('❌ 关闭设置窗口时出错: $e');
+            debugPrint('堆栈信息: ${StackTrace.current}');
           }
         },
       ),

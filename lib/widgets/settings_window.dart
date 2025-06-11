@@ -1,192 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hotkey_manager/hotkey_manager.dart';
-import '../services/hotkey_service.dart';
-import '../services/clipboard_service.dart';
+import 'package:get/get.dart';
+import '../controllers/settings_controller.dart';
 
-class SettingsWindow extends StatefulWidget {
+class SettingsWindow extends StatelessWidget {
   final VoidCallback? onClose;
 
   const SettingsWindow({super.key, this.onClose});
 
   @override
-  State<SettingsWindow> createState() => _SettingsWindowState();
-}
-
-class _SettingsWindowState extends State<SettingsWindow> {
-  final HotkeyService _hotkeyService = HotkeyService();
-  final ClipboardService _clipboardService = ClipboardService();
-
-  String _selectedKey = 'KeyV';
-  Set<HotKeyModifier> _selectedModifiers = {
-    HotKeyModifier.meta,
-    HotKeyModifier.shift,
-  };
-
-  int _maxItems = 50;
-  bool _isRecording = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentSettings();
-  }
-
-  void _loadCurrentSettings() {
-    _maxItems = _clipboardService.maxItems;
-  }
-
-  void _startRecording() {
-    setState(() {
-      _isRecording = true;
-    });
-  }
-
-  void _stopRecording() {
-    setState(() {
-      _isRecording = false;
-    });
-  }
-
-  void _onKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.escape) {
-      if (_isRecording) {
-        _stopRecording();
-      } else {
-        widget.onClose?.call();
-      }
-      return;
-    }
-
-    if (_isRecording && event is KeyDownEvent) {
-      final key = event.logicalKey;
-      final modifiers = <HotKeyModifier>{};
-
-      if (RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.metaLeft,
-          ) ||
-          RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.metaRight,
-          )) {
-        modifiers.add(HotKeyModifier.meta);
-      }
-      if (RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.shiftLeft,
-          ) ||
-          RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.shiftRight,
-          )) {
-        modifiers.add(HotKeyModifier.shift);
-      }
-      if (RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.altLeft,
-          ) ||
-          RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.altRight,
-          )) {
-        modifiers.add(HotKeyModifier.alt);
-      }
-      if (RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.controlLeft,
-          ) ||
-          RawKeyboard.instance.keysPressed.contains(
-            LogicalKeyboardKey.controlRight,
-          )) {
-        modifiers.add(HotKeyModifier.control);
-      }
-
-      if (_isValidKey(key) && modifiers.isNotEmpty) {
-        setState(() {
-          _selectedKey = _getKeyCode(key);
-          _selectedModifiers = modifiers;
-        });
-        _stopRecording();
-      }
-    }
-  }
-
-  bool _isValidKey(LogicalKeyboardKey key) {
-    return key.keyLabel.length == 1 &&
-        RegExp(r'[A-Za-z]').hasMatch(key.keyLabel);
-  }
-
-  String _getKeyCode(LogicalKeyboardKey key) {
-    return 'Key${key.keyLabel.toUpperCase()}';
-  }
-
-  String _getHotkeyText() {
-    final modifierText = _selectedModifiers
-        .map((modifier) {
-          switch (modifier) {
-            case HotKeyModifier.meta:
-              return 'Cmd';
-            case HotKeyModifier.shift:
-              return 'Shift';
-            case HotKeyModifier.alt:
-              return 'Alt';
-            case HotKeyModifier.control:
-              return 'Ctrl';
-            default:
-              return '';
-          }
-        })
-        .join(' + ');
-
-    final key = _selectedKey.replaceAll('Key', '');
-    return '$modifierText + $key';
-  }
-
-  Future<void> _saveSettings() async {
-    try {
-      await _hotkeyService.saveHotkeyConfig(
-        _selectedKey,
-        _selectedModifiers.toList(),
-      );
-      _clipboardService.maxItems = _maxItems;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('设置已保存')));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存失败: $e')));
-    }
-  }
-
-  Future<void> _clearHistory() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认清空'),
-        content: const Text('确定要清空所有粘贴板历史记录吗？此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await _clipboardService.clearHistory();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('历史记录已清空')));
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final controller = Get.put(SettingsController());
+
+    // 设置关闭回调
+    controller.setCloseCallback(onClose);
+
     return KeyboardListener(
       focusNode: FocusNode()..requestFocus(),
-      onKeyEvent: _onKeyEvent,
+      onKeyEvent: controller.onKeyEvent,
       child: Container(
         width: 500,
         height: 600,
@@ -234,7 +65,7 @@ class _SettingsWindowState extends State<SettingsWindow> {
                     ),
                     const Spacer(),
                     IconButton(
-                      onPressed: widget.onClose,
+                      onPressed: controller.closeWindow,
                       icon: const Icon(Icons.close),
                       tooltip: '关闭 (Esc)',
                       style: IconButton.styleFrom(
@@ -280,52 +111,68 @@ class _SettingsWindowState extends State<SettingsWindow> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: _isRecording
-                                          ? Colors.red.withOpacity(0.1)
-                                          : Theme.of(
-                                              context,
-                                            ).inputDecorationTheme.fillColor,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: _isRecording
-                                            ? Colors.red
-                                            : Theme.of(context).dividerColor,
+                                  child: Obx(
+                                    () => Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: controller.isRecording.value
+                                            ? Colors.red.withOpacity(0.1)
+                                            : Theme.of(
+                                                context,
+                                              ).inputDecorationTheme.fillColor,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: controller.isRecording.value
+                                              ? Colors.red
+                                              : Theme.of(context).dividerColor,
+                                        ),
                                       ),
-                                    ),
-                                    child: Text(
-                                      _isRecording
-                                          ? '按下新的快捷键...'
-                                          : _getHotkeyText(),
-                                      style: TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontWeight: FontWeight.bold,
-                                        color: _isRecording ? Colors.red : null,
+                                      child: Text(
+                                        controller.isRecording.value
+                                            ? '按下新的快捷键...'
+                                            : controller.getHotkeyText(),
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontWeight: FontWeight.bold,
+                                          color: controller.isRecording.value
+                                              ? Colors.red
+                                              : null,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                ElevatedButton(
-                                  onPressed: _isRecording
-                                      ? _stopRecording
-                                      : _startRecording,
-                                  child: Text(_isRecording ? '取消' : '更改'),
+                                Obx(
+                                  () => ElevatedButton(
+                                    onPressed: controller.isRecording.value
+                                        ? controller.stopRecording
+                                        : controller.startRecording,
+                                    child: Text(
+                                      controller.isRecording.value
+                                          ? '取消'
+                                          : '更改',
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
-                            if (_isRecording) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                '请按下新的快捷键组合。确保包含修饰键（Cmd/Ctrl/Alt/Shift）。',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
+                            Obx(
+                              () => controller.isRecording.value
+                                  ? const Column(
+                                      children: [
+                                        SizedBox(height: 8),
+                                        Text(
+                                          '请按下新的快捷键组合。确保包含修饰键（Cmd/Ctrl/Alt/Shift）。',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
                           ],
                         ),
                       ),
@@ -358,22 +205,20 @@ class _SettingsWindowState extends State<SettingsWindow> {
                                 const Spacer(),
                                 SizedBox(
                                   width: 100,
-                                  child: TextFormField(
-                                    initialValue: _maxItems.toString(),
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      border: OutlineInputBorder(),
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
+                                  child: Obx(
+                                    () => TextFormField(
+                                      initialValue: controller.maxItems.value
+                                          .toString(),
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
                                       ),
+                                      onChanged: controller.updateMaxItems,
                                     ),
-                                    onChanged: (value) {
-                                      final intValue = int.tryParse(value);
-                                      if (intValue != null && intValue > 0) {
-                                        _maxItems = intValue;
-                                      }
-                                    },
                                   ),
                                 ),
                               ],
@@ -382,7 +227,7 @@ class _SettingsWindowState extends State<SettingsWindow> {
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
-                                onPressed: _clearHistory,
+                                onPressed: controller.clearHistory,
                                 icon: const Icon(Icons.delete_outline),
                                 label: const Text('清空历史记录'),
                                 style: ElevatedButton.styleFrom(
@@ -400,7 +245,7 @@ class _SettingsWindowState extends State<SettingsWindow> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _saveSettings,
+                          onPressed: controller.saveSettings,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
