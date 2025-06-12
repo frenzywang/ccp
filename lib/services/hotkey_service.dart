@@ -152,7 +152,7 @@ class HotkeyService {
         final hotkey = HotKey(
           key: _getPhysicalKey('Digit$i'),
           modifiers: [HotKeyModifier.meta],
-          scope: HotKeyScope.system,
+          scope: HotKeyScope.inapp,
         );
 
         await hotKeyManager.register(
@@ -169,7 +169,7 @@ class HotkeyService {
       final hotkey0 = HotKey(
         key: _getPhysicalKey('Digit0'),
         modifiers: [HotKeyModifier.meta],
-        scope: HotKeyScope.system,
+        scope: HotKeyScope.inapp,
       );
 
       await hotKeyManager.register(
@@ -181,7 +181,7 @@ class HotkeyService {
 
       _numberHotkeys.add(hotkey0);
 
-      print('✅ 数字热键注册成功: Cmd+1-9, Cmd+0');
+      print('✅ 数字热键注册成功: Cmd+1-9, Cmd+0 (应用级别)');
     } catch (e) {
       print('❌ 数字热键注册失败: $e');
     }
@@ -310,6 +310,17 @@ class HotkeyService {
       'KeyI': PhysicalKeyboardKey.keyI,
       'KeyO': PhysicalKeyboardKey.keyO,
       'KeyP': PhysicalKeyboardKey.keyP,
+      // 添加数字键映射
+      'Digit0': PhysicalKeyboardKey.digit0,
+      'Digit1': PhysicalKeyboardKey.digit1,
+      'Digit2': PhysicalKeyboardKey.digit2,
+      'Digit3': PhysicalKeyboardKey.digit3,
+      'Digit4': PhysicalKeyboardKey.digit4,
+      'Digit5': PhysicalKeyboardKey.digit5,
+      'Digit6': PhysicalKeyboardKey.digit6,
+      'Digit7': PhysicalKeyboardKey.digit7,
+      'Digit8': PhysicalKeyboardKey.digit8,
+      'Digit9': PhysicalKeyboardKey.digit9,
     };
     return keyMap[keyCode] ?? PhysicalKeyboardKey.keyV; // Default to 'V'
   }
@@ -340,6 +351,17 @@ class HotkeyService {
       'KeyI': LogicalKeyboardKey.keyI,
       'KeyO': LogicalKeyboardKey.keyO,
       'KeyP': LogicalKeyboardKey.keyP,
+      // 添加数字键映射
+      'Digit0': LogicalKeyboardKey.digit0,
+      'Digit1': LogicalKeyboardKey.digit1,
+      'Digit2': LogicalKeyboardKey.digit2,
+      'Digit3': LogicalKeyboardKey.digit3,
+      'Digit4': LogicalKeyboardKey.digit4,
+      'Digit5': LogicalKeyboardKey.digit5,
+      'Digit6': LogicalKeyboardKey.digit6,
+      'Digit7': LogicalKeyboardKey.digit7,
+      'Digit8': LogicalKeyboardKey.digit8,
+      'Digit9': LogicalKeyboardKey.digit9,
     };
     return keyMap[keyCode] ?? LogicalKeyboardKey.keyV; // Default to 'V'
   }
@@ -388,6 +410,6 @@ class HotkeyService {
   // 添加一个方法来手动重置热键处理状态
   void resetHotkeyProcessingState() {
     _isHotkeyProcessing = false;
-    print('�� 手动重置热键处理状态');
+    print('👋 手动重置热键处理状态');
   }
 }
