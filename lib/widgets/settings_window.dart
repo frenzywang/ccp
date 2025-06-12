@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import '../controllers/settings_controller.dart';
+import '../services/crash_handler_service.dart';
+import '../services/keyboard_service.dart';
+import '../services/window_service.dart';
 
 class SettingsWindow extends StatelessWidget {
   final VoidCallback? onClose;
@@ -19,7 +23,7 @@ class SettingsWindow extends StatelessWidget {
       onKeyEvent: controller.onKeyEvent,
       child: Container(
         width: 500,
-        height: 600,
+        height: 700,
         decoration: BoxDecoration(
           color: Theme.of(context).scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(16),
@@ -79,7 +83,7 @@ class SettingsWindow extends StatelessWidget {
               ),
               // Content
               Expanded(
-                child: Padding(
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +242,183 @@ class SettingsWindow extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(height: 24),
+
+                      // Auto Paste Settings - 只显示禁用和自动粘贴
+                      const Text(
+                        '自动粘贴设置',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Obx(() {
+                              final currentMethod =
+                                  controller.currentPasteMethod.value;
+                              return Column(
+                                children: PasteMethod.values.map((method) {
+                                  return RadioListTile<PasteMethod>(
+                                    title: Text(method.displayName),
+                                    value: method,
+                                    groupValue: currentMethod,
+                                    onChanged: (PasteMethod? value) {
+                                      if (value != null) {
+                                        controller.updatePasteMethod(value);
+                                      }
+                                    },
+                                    contentPadding: EdgeInsets.zero,
+                                  );
+                                }).toList(),
+                              );
+                            }),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '注意：自动粘贴需要辅助功能权限',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // 权限管理
+                      const Text(
+                        '权限管理',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _checkAccessibilityPermission,
+                                child: const Text('检查辅助功能权限'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _requestAccessibilityPermission,
+                                child: const Text('申请辅助功能权限'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _forceRequestAccessibilityPermission,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange.withOpacity(
+                                    0.1,
+                                  ),
+                                  foregroundColor: Colors.orange,
+                                ),
+                                child: const Text('强制申请权限（Debug 模式）'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // 使用说明
+                      const Text(
+                        '使用说明',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        child: const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('• 使用 Cmd+Shift+V 打开剪贴板历史窗口'),
+                            Text('• 使用 Cmd+1~9 快速粘贴历史记录'),
+                            Text('• 点击系统托盘图标也可打开窗口'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // 日志管理
+                      const Text(
+                        '日志管理',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _showCrashLogs,
+                                child: const Text('查看崩溃日志'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _clearCrashLogs,
+                                child: const Text('清理旧日志'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
 
                       // Save Button
                       SizedBox(
@@ -260,5 +440,259 @@ class SettingsWindow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 显示崩溃日志对话框
+  void _showCrashLogs() async {
+    try {
+      final logs = await CrashHandlerService().getRecentLogs();
+      final logPath = CrashHandlerService().logFilePath;
+
+      if (Get.context != null) {
+        showDialog(
+          context: Get.context!,
+          builder: (context) => AlertDialog(
+            title: const Text('崩溃日志'),
+            content: SizedBox(
+              width: 600,
+              height: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '日志文件位置: $logPath',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: SelectableText(
+                          logs,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('显示崩溃日志失败: $e');
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(SnackBar(content: Text('无法读取崩溃日志: $e')));
+      }
+    }
+  }
+
+  /// 清理旧日志文件
+  void _clearCrashLogs() async {
+    try {
+      await CrashHandlerService().cleanupOldLogs();
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(const SnackBar(content: Text('旧日志文件已清理')));
+      }
+    } catch (e) {
+      print('清理日志失败: $e');
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(SnackBar(content: Text('清理日志失败: $e')));
+      }
+    }
+  }
+
+  /// 检查辅助功能权限
+  void _checkAccessibilityPermission() async {
+    try {
+      final hasPermission = await KeyboardService.hasAccessibilityPermission();
+      if (Get.context != null) {
+        ScaffoldMessenger.of(Get.context!).showSnackBar(
+          SnackBar(
+            content: Text(hasPermission ? '✅ 已有辅助功能权限' : '❌ 缺少辅助功能权限'),
+            backgroundColor: hasPermission ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      print('检查辅助功能权限失败: $e');
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(SnackBar(content: Text('检查权限失败: $e')));
+      }
+    }
+  }
+
+  /// 请求辅助功能权限
+  void _requestAccessibilityPermission() async {
+    try {
+      await KeyboardService.requestAccessibilityPermission();
+      if (Get.context != null) {
+        showDialog(
+          context: Get.context!,
+          builder: (context) => AlertDialog(
+            title: const Text('权限申请指导'),
+            content: const SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('系统设置已打开，请按以下步骤操作：'),
+                  SizedBox(height: 12),
+                  Text('1. 在"隐私与安全性"页面中，点击左侧的"辅助功能"'),
+                  Text('2. 点击右下角的"+"按钮'),
+                  Text('3. 找到并选择 ccp 应用'),
+                  Text('4. 确保应用旁边的开关是打开状态'),
+                  SizedBox(height: 12),
+                  Text(
+                    '提示：如果找不到应用，可以点击下方的"显示应用路径"按钮获取具体位置。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => _showAppPath(),
+                child: const Text('显示应用路径'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('我知道了'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('请求辅助功能权限失败: $e');
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(SnackBar(content: Text('请求权限失败: $e')));
+      }
+    }
+  }
+
+  /// 显示应用路径信息
+  void _showAppPath() async {
+    if (Get.context != null) {
+      showDialog(
+        context: Get.context!,
+        builder: (context) => AlertDialog(
+          title: const Text('应用路径信息'),
+          content: const SizedBox(
+            width: 500,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('在开发模式下，应用通常位于以下路径：'),
+                SizedBox(height: 8),
+                SelectableText(
+                  '/Users/[用户名]/go/src/gitlab.myteksi.net/junya.wang/ccp/build/macos/Build/Products/Debug/ccp.app',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    backgroundColor: Colors.grey,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text('如果是发布版本，路径可能是：'),
+                SizedBox(height: 8),
+                SelectableText(
+                  '/Applications/ccp.app',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    backgroundColor: Colors.grey,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  '您也可以在 Finder 中搜索 "ccp.app" 来找到应用位置。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// 强制申请辅助功能权限
+  void _forceRequestAccessibilityPermission() async {
+    try {
+      final success =
+          await KeyboardService.forceRequestAccessibilityPermission();
+      if (Get.context != null) {
+        if (success) {
+          ScaffoldMessenger.of(Get.context!).showSnackBar(
+            const SnackBar(
+              content: Text('✅ 权限申请成功！'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          showDialog(
+            context: Get.context!,
+            builder: (context) => AlertDialog(
+              title: const Text('权限申请'),
+              content: const Text(
+                '系统权限对话框已显示，请按照提示操作。\n\n'
+                '如果没有看到对话框，系统设置将自动打开，请手动添加应用到辅助功能列表。\n\n'
+                'Debug 模式下，应用路径可能会变化，建议：\n'
+                '1. 先从列表中移除旧的应用项\n'
+                '2. 重新添加当前的应用\n'
+                '3. 确保开关是打开状态',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('我知道了'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('强制申请辅助功能权限失败: $e');
+      if (Get.context != null) {
+        ScaffoldMessenger.of(
+          Get.context!,
+        ).showSnackBar(SnackBar(content: Text('强制申请权限失败: $e')));
+      }
+    }
   }
 }

@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
+import 'package:flutter/services.dart';
+import 'dart:io';
 import 'dart:async';
-import 'dart:io' show Platform, Process;
+import 'dart:convert';
 import '../main.dart';
 import '../widgets/settings_window.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:get/get.dart';
 import '../controllers/clipboard_controller.dart';
+import 'keyboard_service.dart';
+import 'hotkey_service.dart';
+import 'clipboard_service.dart';
+
+// 自动粘贴的实现选项
+enum PasteMethod {
+  disabled('禁用自动粘贴'),
+  swiftNative('自动粘贴（推荐）');
+
+  const PasteMethod(this.displayName);
+  final String displayName;
+}
 
 class WindowService {
   static final WindowService _instance = WindowService._internal();
@@ -16,71 +29,67 @@ class WindowService {
   /// 显示剪贴板历史窗口（快捷键触发）
   /// 显示窗口但不抢夺焦点，保持原应用的输入焦点用于自动粘贴
   Future<void> showClipboardHistory() async {
-    debugPrint('🚀 WindowService.showClipboardHistory() - 显示窗口（不抢夺焦点）');
+    print('🚀 WindowService.showClipboardHistory() - 显示窗口（不抢夺焦点）');
 
     try {
-      // 先显示窗口
+      // 检查窗口当前状态
+      final isVisible = await windowManager.isVisible();
+      final isMinimized = await windowManager.isMinimized();
+      print('🔍 窗口当前状态: 可见=$isVisible, 最小化=$isMinimized');
+
+      if (isVisible) {
+        print('⚠️ 窗口已经可见，先隐藏再显示');
+        await windowManager.hide();
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // 显示窗口
       await windowManager.show();
 
-      // 在macOS上，使用特殊的窗口级别来避免抢夺焦点
-      if (Platform.isMacOS) {
-        // 立即取消焦点，让原应用保持焦点
-        await _refocusPreviousApp();
+      // 等待一下确保窗口显示
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // 再次检查状态
+      final isVisibleAfter = await windowManager.isVisible();
+      print('🔍 显示后窗口状态: 可见=$isVisibleAfter');
+
+      if (!isVisibleAfter) {
+        print('❌ 窗口显示失败，尝试强制显示');
+        // 尝试其他方法
+        await windowManager.restore();
+        await windowManager.show();
       }
 
-      debugPrint('✅ 窗口已显示，原应用焦点已保持');
+      print('✅ 窗口已显示，原应用焦点已保持');
     } catch (e) {
-      debugPrint('❌ 显示剪贴板历史窗口时出错: $e');
-    }
-  }
-
-  /// 重新聚焦到之前的应用
-  Future<void> _refocusPreviousApp() async {
-    if (Platform.isMacOS) {
-      try {
-        // 短暂延迟后重新聚焦到前台应用
-        await Future.delayed(const Duration(milliseconds: 50));
-
-        final result = await Process.run('osascript', [
-          '-e',
-          '''
-          tell application "System Events"
-            set frontApps to (name of application processes whose frontmost is true)
-            if (count of frontApps) > 0 then
-              set frontApp to item 1 of frontApps
-              if frontApp is not "ccp" then
-                tell application frontApp to activate
-              end if
-            end if
-          end tell
-          ''',
-        ]);
-
-        if (result.exitCode == 0) {
-          debugPrint('✅ 成功重新聚焦到之前的应用');
-        }
-      } catch (e) {
-        debugPrint('⚠️ 重新聚焦失败: $e');
-      }
+      print('❌ 显示剪贴板历史窗口时出错: $e');
     }
   }
 
   /// 隐藏剪贴板历史窗口
   /// 使用window_manager隐藏主窗口
   Future<void> hideClipboardHistory() async {
-    debugPrint('🙈 隐藏剪贴板历史窗口');
+    print('🙈 隐藏剪贴板历史窗口');
     try {
       // 隐藏窗口
       await windowManager.hide();
-      debugPrint('✅ 剪贴板历史窗口已隐藏');
+
+      // 重置热键处理状态，确保下次可以正常显示
+      try {
+        HotkeyService().resetHotkeyProcessingState();
+      } catch (e) {
+        print('⚠️ 重置热键状态失败: $e');
+      }
+
+      print('✅ 剪贴板历史窗口已隐藏');
     } catch (e) {
-      debugPrint('❌ 隐藏窗口时出错: $e');
+      print('❌ 隐藏窗口时出错: $e');
     }
   }
 
   /// 选择并粘贴剪贴板项目（通过系统级热键触发）
   Future<void> selectClipboardItem(int index) async {
-    debugPrint('🎯 selectClipboardItem: 选择第${index + 1}项');
+    print('🎯 selectClipboardItem: 选择第${index + 1}项');
 
     try {
       // 通过 Get 获取控制器
@@ -89,26 +98,25 @@ class WindowService {
 
       if (index < items.length) {
         final item = items[index];
-        debugPrint(
+        print(
           '📋 选择的项目: ${item.content.substring(0, item.content.length > 30 ? 30 : item.content.length)}...',
         );
 
         // 1. 复制到剪贴板
         await controller.copyToClipboard(item.content);
-        debugPrint('📋 内容已复制到剪贴板');
+        print('📋 内容已复制到剪贴板');
 
         // 2. 隐藏窗口
         await hideClipboardHistory();
-        debugPrint('🙈 窗口已隐藏');
 
         // 3. 模拟粘贴
         await simulatePaste();
-        debugPrint('🎉 自动粘贴完成');
+        print('🎉 自动粘贴完成');
       } else {
-        debugPrint('⚠️ 选择的索引超出范围: $index >= ${items.length}');
+        print('⚠️ 选择的索引超出范围: $index >= ${items.length}');
       }
     } catch (e) {
-      debugPrint('❌ 选择剪贴板项目失败: $e');
+      print('❌ 选择剪贴板项目失败: $e');
     }
   }
 
@@ -116,7 +124,7 @@ class WindowService {
   void showSettingsDialog() {
     final context = navigatorKey.currentContext;
     if (context == null) {
-      debugPrint('❌ 无法显示设置对话框：navigator context为null');
+      print('❌ 无法显示设置对话框：navigator context为null');
       return;
     }
 
@@ -146,65 +154,75 @@ class WindowService {
   }
 
   Future<void> dispose() async {
-    debugPrint('✓ Window service disposed');
+    print('✓ Window service disposed');
   }
+
+  // 当前使用的粘贴方法（默认使用Swift Native）
+  PasteMethod _currentPasteMethod = PasteMethod.swiftNative;
 
   // 从 main.dart 移动过来的模拟粘贴功能
   Future<void> simulatePaste() async {
-    if (Platform.isMacOS) {
-      try {
-        debugPrint('🍝 开始模拟 Cmd+V 按键...');
+    switch (_currentPasteMethod) {
+      case PasteMethod.disabled:
+        print('🚫 自动粘贴已禁用，内容已复制到剪贴板，请手动使用 Cmd+V 粘贴');
+        // 可以考虑添加一个系统通知
+        _showPasteNotification();
+        break;
 
-        // 方案1: 直接使用 key code
-        final result = await Process.run('osascript', [
-          '-e',
-          'tell application "System Events" to key code 9 using command down',
-        ]);
-
-        debugPrint('📤 key code 方案退出码: ${result.exitCode}');
-
-        if (result.exitCode == 0) {
-          debugPrint('✅ Cmd+V 按键模拟成功');
-        } else {
-          debugPrint('❌ key code 方案失败，尝试备用方案...');
-          debugPrint('stderr: ${result.stderr}');
-
-          // 方案2: 激活前台应用后发送按键
-          final result2 = await Process.run('osascript', [
-            '-e',
-            '''
-          tell application "System Events"
-            set frontApp to name of first application process whose frontmost is true
-            tell application frontApp to activate
-            delay 0.2
-            key code 9 using command down
-          end tell
-          ''',
-          ]);
-
-          if (result2.exitCode == 0) {
-            debugPrint('✅ 备用方案成功');
-          } else {
-            debugPrint('❌ 备用方案也失败: ${result2.stderr}');
-
-            // 方案3: 使用 keystroke
-            final result3 = await Process.run('osascript', [
-              '-e',
-              'tell application "System Events" to keystroke "v" using command down',
-            ]);
-
-            if (result3.exitCode == 0) {
-              debugPrint('✅ keystroke 方案成功');
-            } else {
-              debugPrint('❌ 所有方案都失败了: ${result3.stderr}');
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('💥 模拟按键异常: $e');
-      }
-    } else {
-      debugPrint('⚠️ 非macOS平台，跳过模拟粘贴');
+      case PasteMethod.swiftNative:
+        await _simulatePasteWithSwiftNative();
+        break;
     }
   }
+
+  // 显示粘贴提示通知
+  void _showPasteNotification() {
+    // 这里可以添加系统通知或其他提示方式
+    print('💡 提示：内容已复制到剪贴板，请手动按 Cmd+V 粘贴');
+  }
+
+  // 使用 Swift Native Method Channel 模拟粘贴
+  Future<void> _simulatePasteWithSwiftNative() async {
+    try {
+      print('🍝 使用 Swift Native Method Channel 模拟 Cmd+V...');
+
+      // 暂停剪贴板监听，防止自动粘贴操作被监听器捕获
+      try {
+        final clipboardService = ClipboardService();
+        clipboardService.pauseWatching(milliseconds: 3000); // 暂停3秒
+        print('⏸️ 已暂停剪贴板监听，防止干扰');
+      } catch (e) {
+        print('⚠️ 暂停剪贴板监听失败: $e');
+      }
+
+      // 等待窗口完全隐藏
+      await Future.delayed(const Duration(milliseconds: 200));
+      print('🍝 窗口已隐藏');
+
+      // 调用 Swift 端的键盘模拟
+      final success = await KeyboardService.simulatePaste();
+
+      if (success) {
+        print('✅ Swift Native 粘贴成功');
+      } else {
+        print('❌ Swift Native 粘贴失败，回退到禁用状态');
+        _currentPasteMethod = PasteMethod.disabled;
+        print('🔄 自动切换到禁用粘贴模式');
+      }
+    } catch (e) {
+      print('💥 Swift Native 模拟粘贴异常: $e');
+      // 如果 Swift Native 失败，回退到禁用状态
+      _currentPasteMethod = PasteMethod.disabled;
+      print('🔄 自动切换到禁用粘贴模式');
+    }
+  }
+
+  // 设置粘贴方法
+  void setPasteMethod(PasteMethod method) {
+    _currentPasteMethod = method;
+    print('🔧 粘贴方法已设置为: ${method.displayName}');
+  }
+
+  // 获取当前粘贴方法
+  PasteMethod get currentPasteMethod => _currentPasteMethod;
 }

@@ -19,21 +19,21 @@ class SystemTrayService {
       // Try to initialize with icon
       try {
         await _systemTray.initSystemTray(title: "", iconPath: _getIconPath());
-        debugPrint('System tray initialized with icon');
+        print('System tray initialized with icon');
       } catch (iconError) {
-        debugPrint('Warning: Could not initialize with icon: $iconError');
+        print('Warning: Could not initialize with icon: $iconError');
         // Try without specific icon path - use default
         await _systemTray.initSystemTray(
           title: "",
           iconPath: '', // Empty icon path
         );
-        debugPrint('System tray initialized without icon');
+        print('System tray initialized without icon');
       }
 
       await _buildMenu();
-      debugPrint('System tray menu built successfully');
+      print('System tray menu built successfully');
     } catch (e) {
-      debugPrint('Error initializing system tray: $e');
+      print('Error initializing system tray: $e');
       rethrow; // Re-throw to let caller handle
     }
   }
@@ -66,7 +66,7 @@ class SystemTrayService {
         isActive ? _getActiveIconPath() : _getIconPath(),
       );
     } catch (e) {
-      debugPrint('Error updating tray icon: $e');
+      print('Error updating tray icon: $e');
     }
   }
 

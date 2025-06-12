@@ -5,6 +5,8 @@ import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
 import 'clipboard_data_service.dart';
+import 'crash_handler_service.dart';
+import 'package:uuid/uuid.dart';
 
 /// 剪贴板监听服务
 /// 负责监听系统剪贴板变化，将新内容传递给 ClipboardDataService
@@ -21,34 +23,61 @@ class ClipboardService {
   Timer? _clipboardTimer;
   bool _isWatching = false;
 
+  // 添加暂停监听的机制
+  bool _isPaused = false;
+  Timer? _pauseTimer;
+
+  /// 暂停剪贴板监听（防止自动粘贴时的干扰）
+  void pauseWatching({int milliseconds = 2000}) {
+    if (!_isWatching) return;
+
+    _isPaused = true;
+    print('⏸️ 暂停剪贴板监听 ${milliseconds}ms');
+
+    // 取消之前的暂停定时器
+    _pauseTimer?.cancel();
+
+    // 设置恢复定时器
+    _pauseTimer = Timer(Duration(milliseconds: milliseconds), () {
+      _isPaused = false;
+      print('▶️ 恢复剪贴板监听');
+    });
+  }
+
+  /// 立即恢复剪贴板监听
+  void resumeWatchingImmediately() {
+    _pauseTimer?.cancel();
+    _isPaused = false;
+    print('▶️ 立即恢复剪贴板监听');
+  }
+
+  /// 初始化剪贴板监听服务
   Future<void> initialize() async {
-    if (_isInitializing) return;
-    _isInitializing = true;
-
-    debugPrint('🚀 正在初始化剪贴板监听服务...');
-
     try {
-      // 在单窗口模式下，直接启动剪贴板监听
-      debugPrint('✅ 单窗口模式：开始剪贴板监听初始化');
+      print('🎯 开始初始化剪贴板服务...');
 
-      // 立即获取当前剪贴板内容并添加到数据服务
-      await _addCurrentClipboardContent();
+      // 记录初始化开始
+      await CrashHandlerService().logMessage('剪贴板服务初始化开始');
+
+      // 首先读取当前剪贴板内容
+      await _initializeCurrentClipboard();
 
       // 启动剪贴板监听
       await _startWatching();
 
-      debugPrint('✅ 剪贴板监听服务初始化完成');
-    } catch (e) {
-      debugPrint('❌ 剪贴板监听服务初始化出错: $e');
+      _isWatching = true;
+      print('✅ 剪贴板监听服务已启动');
 
-      // 即使出错也要尝试获取当前内容
-      try {
-        await _addCurrentClipboardContent();
-      } catch (e2) {
-        debugPrint('❌ 获取当前剪贴板内容也失败: $e2');
-      }
-    } finally {
-      _isInitializing = false;
+      // 记录初始化成功
+      await CrashHandlerService().logMessage('剪贴板服务初始化成功');
+    } catch (e, stack) {
+      print('❌ 初始化剪贴板服务失败: $e');
+
+      // 记录初始化失败
+      await CrashHandlerService().logError('剪贴板服务初始化失败', e, stack);
+
+      _isWatching = false;
+      rethrow;
     }
   }
 
@@ -61,9 +90,9 @@ class ClipboardService {
       // 获取当前剪贴板内容作为基准
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       _lastClipboardContent = data?.text;
-      debugPrint('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
+      print('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
 
-      debugPrint('👂 开始监听剪贴板变化（检查间隔：100ms）');
+      print('👂 开始监听剪贴板变化（检查间隔：100ms）');
 
       // 使用定时器定期检测剪贴板变化
       _clipboardTimer = Timer.periodic(const Duration(milliseconds: 100), (
@@ -72,13 +101,18 @@ class ClipboardService {
         _checkClipboardChange();
       });
     } catch (e) {
-      debugPrint('❌ 启动剪贴板监听失败: $e');
+      print('❌ 启动剪贴板监听失败: $e');
       _isWatching = false;
     }
   }
 
   Future<void> _checkClipboardChange() async {
     try {
+      // 如果监听被暂停，跳过检查
+      if (_isPaused) {
+        return;
+      }
+
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final currentContent = data?.text;
 
@@ -90,8 +124,8 @@ class ClipboardService {
             ? "${currentContent.substring(0, previewLength)}..."
             : currentContent;
 
-        debugPrint('🔥 剪贴板内容已更新: $preview');
-        debugPrint('📊 内容长度: ${currentContent.length} 字符');
+        print('🔥 剪贴板内容已更新: $preview');
+        print('📊 内容长度: ${currentContent.length} 字符');
 
         // 将新内容传递给数据服务
         await _addClipboardItemToDataService(
@@ -105,7 +139,7 @@ class ClipboardService {
     } catch (e) {
       // 偶尔的错误可以忽略，但连续错误需要记录
       if (DateTime.now().millisecondsSinceEpoch % 10000 < 100) {
-        debugPrint('⚠️ 剪贴板检查错误: $e');
+        print('⚠️ 剪贴板检查错误: $e');
       }
     }
   }
@@ -121,53 +155,81 @@ class ClipboardService {
 
         // 单窗口模式：直接添加到控制器
         await controller.addItem(content, type: type);
-        debugPrint('✅ 单窗口模式：剪贴板项目已添加到历史记录');
+        print('✅ 单窗口模式：剪贴板项目已添加到历史记录');
       } catch (e) {
-        debugPrint('❌ 未找到 ClipboardController: $e');
+        print('❌ 未找到 ClipboardController: $e');
       }
     } catch (e) {
-      debugPrint('❌ 传递剪贴板项目到数据服务失败: $e');
+      print('❌ 传递剪贴板项目到数据服务失败: $e');
     }
   }
 
-  Future<void> _addCurrentClipboardContent() async {
+  /// 初始化当前剪贴板内容
+  Future<void> _initializeCurrentClipboard() async {
     try {
-      debugPrint('📖 正在读取当前剪贴板内容...');
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data?.text != null && data!.text!.isNotEmpty) {
-        final content = data.text!;
-        debugPrint('✓ 获取到当前剪贴板内容: ${content.length} 字符');
-        debugPrint(
-          '内容预览: ${content.length > 50 ? "${content.substring(0, 50)}..." : content}',
-        );
+        _lastClipboardContent = data.text!;
+        final preview = _lastClipboardContent!.length > 50
+            ? '${_lastClipboardContent!.substring(0, 50)}...'
+            : _lastClipboardContent!;
+        print('📋 当前剪贴板内容: $preview');
 
-        await _addClipboardItemToDataService(content, ClipboardItemType.text);
-        _lastClipboardContent = content;
-        debugPrint('✓ 当前剪贴板内容已添加到数据服务');
-      } else {
-        debugPrint('⚠️ 当前剪贴板为空或无文本内容');
-
-        // 为了测试和用户体验，添加一个示例数据
-        final welcomeText = '欢迎使用剪贴板历史管理器！\n复制一些文本来查看历史记录。';
+        // 将当前剪贴板内容添加到历史记录
         await _addClipboardItemToDataService(
-          welcomeText,
+          _lastClipboardContent!,
           ClipboardItemType.text,
         );
-        _lastClipboardContent = welcomeText;
-        debugPrint('✓ 已添加欢迎示例数据');
+        print('✅ 当前剪贴板内容已添加到历史记录');
+      } else {
+        print('📋 当前剪贴板为空或无文本内容');
       }
-    } catch (e) {
-      debugPrint('❌ 无法读取当前剪贴板内容: $e');
+    } catch (e, stack) {
+      print('⚠️ 读取当前剪贴板内容失败: $e');
+      await CrashHandlerService().logError('读取剪贴板内容失败', e, stack);
+    }
+  }
 
-      // 即使出错也添加一个示例数据
-      try {
-        final errorText = '剪贴板历史管理器已启动\n开始复制文本查看历史记录';
-        await _addClipboardItemToDataService(errorText, ClipboardItemType.text);
-        _lastClipboardContent = errorText;
-        debugPrint('✓ 已添加错误示例数据');
-      } catch (e2) {
-        debugPrint('❌ 添加示例数据也失败: $e2');
+  /// 剪贴板变化回调
+  void _onClipboardChanged() async {
+    try {
+      if (!_isWatching) return;
+
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (data?.text == null || data!.text!.isEmpty) {
+        return;
       }
+
+      final newContent = data.text!;
+
+      // 检查是否是重复内容
+      if (_lastClipboardContent == newContent) {
+        return;
+      }
+
+      _lastClipboardContent = newContent;
+
+      final preview = newContent.length > 50
+          ? '${newContent.substring(0, 50)}...'
+          : newContent;
+      print('📋 剪贴板内容已变化: $preview');
+
+      // 创建剪贴板项目
+      final item = ClipboardItem(
+        id: const Uuid().v4(),
+        content: newContent,
+        createdAt: DateTime.now(),
+        type: ClipboardItemType.text,
+      );
+
+      // 更新控制器
+      final controller = Get.find<ClipboardController>();
+      controller.addItem(item.content);
+
+      print('✅ 剪贴板项目已添加到历史记录');
+    } catch (e, stack) {
+      print('❌ 处理剪贴板变化失败: $e');
+      await CrashHandlerService().logError('处理剪贴板变化失败', e, stack);
     }
   }
 
@@ -176,7 +238,7 @@ class ClipboardService {
     if (_isWatching) {
       _clipboardTimer?.cancel();
       _isWatching = false;
-      debugPrint('⏸️ 剪贴板监听已停止');
+      print('⏸️ 剪贴板监听已停止');
     }
   }
 
@@ -184,7 +246,7 @@ class ClipboardService {
   Future<void> resumeWatching() async {
     if (!_isWatching) {
       await _startWatching();
-      debugPrint('▶️ 剪贴板监听已恢复');
+      print('▶️ 剪贴板监听已恢复');
     }
   }
 
@@ -196,16 +258,18 @@ class ClipboardService {
 
   /// 手动触发剪贴板检查
   Future<void> manualCheck() async {
-    debugPrint('🔄 手动触发剪贴板检查...');
+    print('🔄 手动触发剪贴板检查...');
     await _checkClipboardChange();
   }
 
   /// 资源清理
   void dispose() {
-    debugPrint('🚪 关闭剪贴板监听服务...');
+    print('🚪 关闭剪贴板监听服务...');
     _clipboardTimer?.cancel();
+    _pauseTimer?.cancel();
     _isWatching = false;
+    _isPaused = false;
     _isInitializing = false;
-    debugPrint('✅ 剪贴板监听服务已关闭');
+    print('✅ 剪贴板监听服务已关闭');
   }
 }

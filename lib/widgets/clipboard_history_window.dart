@@ -4,13 +4,14 @@ import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
 import '../services/window_service.dart';
+import '../services/clipboard_service.dart';
 
 class ClipboardHistoryWindow extends StatelessWidget {
   const ClipboardHistoryWindow({super.key});
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🏗️ ClipboardHistoryWindow build开始');
+    print('🏗️ ClipboardHistoryWindow build开始');
 
     // 获取Controller实例
     final controller = Get.find<ClipboardController>();
@@ -22,26 +23,16 @@ class ClipboardHistoryWindow extends StatelessWidget {
         onKey: (RawKeyEvent event) {
           if (event is RawKeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.escape) {
-            debugPrint('⌨️ ESC键隐藏窗口');
+            print('⌨️ ESC键隐藏窗口');
             WindowService().hideClipboardHistory();
           }
         },
         child: GestureDetector(
-          // 点击空白区域隐藏窗口
-          onTap: () {
-            debugPrint('👆 点击空白区域，隐藏窗口');
-            WindowService().hideClipboardHistory();
-          },
           child: Focus(
             autofocus: false, // 不自动获得焦点，避免抢夺原应用焦点
             onFocusChange: (hasFocus) {
-              if (!hasFocus) {
-                debugPrint('🙈 剪贴板窗口失去焦点，自动隐藏');
-                // 延迟隐藏，避免立即触发
-                Future.delayed(const Duration(milliseconds: 200), () {
-                  WindowService().hideClipboardHistory();
-                });
-              }
+              print('🔍 剪贴板窗口焦点变化: $hasFocus');
+              // 完全移除自动隐藏逻辑，让用户手动控制
             },
             onKeyEvent: (node, event) =>
                 _handleKeyEvent(node, event, controller),
@@ -69,7 +60,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
 
   Widget _buildHeader() {
     return Container(
-      height: 50,
+      height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.grey[100],
@@ -91,7 +82,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings, size: 18),
             onPressed: () {
-              debugPrint('⚙️ 点击设置按钮，打开设置窗口');
+              print('⚙️ 点击设置按钮，打开设置窗口');
               WindowService().showSettings();
             },
             tooltip: 'Settings',
@@ -107,12 +98,12 @@ class ClipboardHistoryWindow extends StatelessWidget {
       controller.items;
       final selectedIndex = controller.selectedIndex;
       final items = List<ClipboardItem>.from(controller.items);
-      debugPrint(
+      print(
         '🎨 UI Builder: items=${items.length}, selectedIndex=$selectedIndex',
       );
 
       if (items.isEmpty) {
-        debugPrint('📭 显示空状态界面');
+        print('📭 显示空状态界面');
         return const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -137,7 +128,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
         );
       }
 
-      debugPrint('📋 显示列表界面，${items.length} 条记录');
+      print('📋 显示列表界面，${items.length} 条记录');
 
       return ListView.builder(
         primary: true,
@@ -279,7 +270,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
   ) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
-    debugPrint(
+    print(
       '🎹 按键事件: ${event.logicalKey.debugName}, Meta: ${event.logicalKey == LogicalKeyboardKey.meta}',
     );
 
@@ -288,24 +279,24 @@ class ClipboardHistoryWindow extends StatelessWidget {
 
     switch (event.logicalKey) {
       case LogicalKeyboardKey.escape:
-        debugPrint('🔙 Escape键: 隐藏窗口');
+        print('🔙 Escape键: 隐藏窗口');
         WindowService().hideClipboardHistory();
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.enter:
-        debugPrint('✅ Enter键: 选择项目 ${controller.selectedIndex}');
+        print('✅ Enter键: 选择项目 ${controller.selectedIndex}');
         if (controller.selectedIndex < items.length) {
           _onItemTap(items[controller.selectedIndex], controller);
         }
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.arrowUp:
-        debugPrint('⬆️ 上箭头: 向上选择');
+        print('⬆️ 上箭头: 向上选择');
         controller.moveSelectionUp();
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.arrowDown:
-        debugPrint('⬇️ 下箭头: 向下选择');
+        print('⬇️ 下箭头: 向下选择');
         controller.moveSelectionDown();
         return KeyEventResult.handled;
 
@@ -322,7 +313,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
         if (HardwareKeyboard.instance.isMetaPressed) {
           final index =
               int.parse(event.logicalKey.debugName!.split('digit')[1]) - 1;
-          debugPrint('🔢 Cmd+${index + 1}: 选择项目 $index');
+          print('🔢 Cmd+${index + 1}: 选择项目 $index');
           if (index < items.length) {
             _onItemTap(items[index], controller);
           }
@@ -333,7 +324,7 @@ class ClipboardHistoryWindow extends StatelessWidget {
       // Command+0 (选择第10项)
       case LogicalKeyboardKey.digit0:
         if (HardwareKeyboard.instance.isMetaPressed) {
-          debugPrint('🔢 Cmd+0: 选择项目 9 (第10项)');
+          print('🔢 Cmd+0: 选择项目 9 (第10项)');
           if (items.length > 9) {
             _onItemTap(items[9], controller);
           }
@@ -349,23 +340,31 @@ class ClipboardHistoryWindow extends StatelessWidget {
     final preview = item.content.length > 50
         ? '${item.content.substring(0, 50)}...'
         : item.content;
-    debugPrint('📋 选择剪贴板项目: $preview');
+    print('📋 选择剪贴板项目: $preview');
 
     try {
+      // 0. 在复制前暂停剪贴板监听，防止循环触发
+      try {
+        final clipboardService = ClipboardService();
+        clipboardService.pauseWatching(milliseconds: 3000);
+        print('⏸️ 暂停剪贴板监听，防止循环触发');
+      } catch (e) {
+        print('⚠️ 暂停监听失败: $e');
+      }
+
       // 1. 直接使用 Controller 复制到系统剪贴板
       await controller.copyToClipboard(item.content);
-      debugPrint('📋 内容已通过GetX复制到剪贴板');
+      print('📋 内容已通过GetX复制到剪贴板');
 
       // 2. 隐藏窗口
       final windowService = WindowService();
       await windowService.hideClipboardHistory();
-      debugPrint('🙈 窗口已隐藏');
 
       // 3. 模拟粘贴
       await windowService.simulatePaste();
-      debugPrint('🎉 自动粘贴流程完成');
+      print('🎉 自动粘贴流程完成');
     } catch (e) {
-      debugPrint('❌ 选择项目时出错: $e');
+      print('❌ 选择项目时出错: $e');
     }
   }
 

@@ -19,21 +19,21 @@ class ClipboardDataService {
   /// 初始化服务（只在主进程中调用）
   Future<void> initialize() async {
     if (_isInitialized) {
-      debugPrint('📦 ClipboardDataService 已初始化，跳过');
+      print('📦 ClipboardDataService 已初始化，跳过');
       return;
     }
 
     try {
-      debugPrint('🚀 初始化 ClipboardDataService...');
+      print('🚀 初始化 ClipboardDataService...');
 
       // 只初始化存储服务，数据管理由 ClipboardController 负责
       await _storageService.initialize();
-      debugPrint('✅ 存储服务初始化完成');
+      print('✅ 存储服务初始化完成');
 
       _isInitialized = true;
-      debugPrint('✅ ClipboardDataService 初始化完成');
+      print('✅ ClipboardDataService 初始化完成');
     } catch (e) {
-      debugPrint('❌ ClipboardDataService 初始化失败: $e');
+      print('❌ ClipboardDataService 初始化失败: $e');
       _isInitialized = true; // 即使失败也标记为已初始化
     }
   }
@@ -55,7 +55,7 @@ class ClipboardDataService {
   /// 关闭服务
   Future<void> dispose() async {
     try {
-      debugPrint('🚪 关闭 ClipboardDataService...');
+      print('🚪 关闭 ClipboardDataService...');
 
       // 关闭存储服务
       await _storageService.dispose();
@@ -63,9 +63,9 @@ class ClipboardDataService {
       // 重置状态
       _isInitialized = false;
 
-      debugPrint('✅ ClipboardDataService 已关闭');
+      print('✅ ClipboardDataService 已关闭');
     } catch (e) {
-      debugPrint('⚠️ 关闭服务时出错: $e');
+      print('⚠️ 关闭服务时出错: $e');
     }
   }
 }
