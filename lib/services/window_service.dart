@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'dart:async';
 import 'dart:io' show Platform, Process;
+import '../main.dart';
+import '../widgets/settings_window.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:get/get.dart';
 import '../controllers/clipboard_controller.dart';
 
@@ -11,132 +13,131 @@ class WindowService {
   factory WindowService() => _instance;
   WindowService._internal();
 
-  bool _isSettingsWindowOpen = false;
-  int? _historyWindowId;
-  int? _settingsWindowId;
-  WindowController? _historyWindowController;
-  WindowController? _settingsWindowController;
+  /// 显示剪贴板历史窗口（快捷键触发）
+  /// 显示窗口但不抢夺焦点，保持原应用的输入焦点用于自动粘贴
+  Future<void> showClipboardHistory() async {
+    debugPrint('🚀 WindowService.showClipboardHistory() - 显示窗口（不抢夺焦点）');
 
-  // 添加一个定时器来定期更新持久窗口的数据
-  Timer? _dataUpdateTimer;
-
-  bool get isSettingsWindowOpen => _isSettingsWindowOpen;
-
-  /// 初始化窗口服务：不创建窗口，只初始化服务
-  Future<void> initialize() async {
-    debugPrint('🚀 WindowService.initialize() - 初始化服务...');
-    // 移除启动时创建窗口，改为按需创建
-    debugPrint('✓ Multi-window service initialized');
-  }
-
-  /// 创建持久的剪贴板历史窗口（启动时执行一次）
-  Future<void> _createPersistentClipboardWindow() async {
     try {
-      debugPrint('📝 创建持久剪贴板历史窗口...');
+      // 先显示窗口
+      await windowManager.show();
 
-      final window = await DesktopMultiWindow.createWindow(
-        jsonEncode({
-          'windowType': 'clipboard_history',
-          'title': 'Clipboard History',
-        }),
-      );
+      // 在macOS上，使用特殊的窗口级别来避免抢夺焦点
+      if (Platform.isMacOS) {
+        // 立即取消焦点，让原应用保持焦点
+        await _refocusPreviousApp();
+      }
 
-      _historyWindowId = window.windowId;
-      _historyWindowController = window;
-      debugPrint('🆔 持久窗口创建成功，ID: $_historyWindowId');
-
-      debugPrint('⚙️ 设置窗口属性...');
-      await window.setFrame(const Offset(0, 0) & const Size(500, 700));
-      await window.center();
-      await window.setTitle('Clipboard History');
-
-      debugPrint('✅ 持久剪贴板历史窗口创建完成');
+      debugPrint('✅ 窗口已显示，原应用焦点已保持');
     } catch (e) {
-      debugPrint('❌ 创建持久剪贴板历史窗口失败: $e');
+      debugPrint('❌ 显示剪贴板历史窗口时出错: $e');
     }
   }
 
-  /// 显示剪贴板历史窗口（快捷键触发）
-  Future<void> showClipboardHistory() async {
-    debugPrint('🚀 WindowService.showClipboardHistory() - 显示窗口');
-    try {
-      // 如果窗口控制器不存在，说明是第一次或者被销毁了，需要创建
-      if (_historyWindowController == null || _historyWindowId == null) {
-        debugPrint('🆕 窗口不存在，开始创建...');
-        await _createPersistentClipboardWindow();
-        // 如果创建后控制器仍然是 null，说明创建失败
-        if (_historyWindowController == null) {
-          debugPrint('❌ 创建窗口失败，退出');
-          return;
-        }
-        debugPrint('✅ 新窗口创建成功');
-      }
+  /// 重新聚焦到之前的应用
+  Future<void> _refocusPreviousApp() async {
+    if (Platform.isMacOS) {
+      try {
+        // 短暂延迟后重新聚焦到前台应用
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      // 不论是新创建的还是已存在的，都执行显示和居中操作
-      // show() 方法能将隐藏的窗口显示出来，或将已显示的窗口带到前台
-      debugPrint('👁️ 显示窗口 (ID: $_historyWindowId)');
-      await _historyWindowController!.show();
-      await _historyWindowController!.center();
-      debugPrint('✅ 窗口已显示并居中');
-    } catch (e) {
-      debugPrint('❌ 显示剪贴板历史窗口时出错: $e');
-      // 出错时重置状态，以便下次可以重新创建
-      _historyWindowController = null;
-      _historyWindowId = null;
+        final result = await Process.run('osascript', [
+          '-e',
+          '''
+          tell application "System Events"
+            set frontApps to (name of application processes whose frontmost is true)
+            if (count of frontApps) > 0 then
+              set frontApp to item 1 of frontApps
+              if frontApp is not "ccp" then
+                tell application frontApp to activate
+              end if
+            end if
+          end tell
+          ''',
+        ]);
+
+        if (result.exitCode == 0) {
+          debugPrint('✅ 成功重新聚焦到之前的应用');
+        }
+      } catch (e) {
+        debugPrint('⚠️ 重新聚焦失败: $e');
+      }
     }
   }
 
   /// 隐藏剪贴板历史窗口
+  /// 使用window_manager隐藏主窗口
   Future<void> hideClipboardHistory() async {
     debugPrint('🙈 隐藏剪贴板历史窗口');
-
-    if (_historyWindowController != null) {
-      try {
-        await _historyWindowController!.hide();
-        debugPrint('✅ 剪贴板历史窗口已隐藏');
-      } catch (e) {
-        debugPrint('❌ 隐藏窗口时出错: $e');
-      }
+    try {
+      // 隐藏窗口
+      await windowManager.hide();
+      debugPrint('✅ 剪贴板历史窗口已隐藏');
+    } catch (e) {
+      debugPrint('❌ 隐藏窗口时出错: $e');
     }
   }
 
-  Future<void> showSettings() async {
-    if (_isSettingsWindowOpen && _settingsWindowId != null) {
-      // 尝试激活已存在的窗口
-      try {
-        final window = WindowController.fromWindowId(_settingsWindowId!);
-        await window.show();
-        debugPrint('Activated existing settings window');
-        return;
-      } catch (e) {
-        debugPrint('Failed to activate existing settings window: $e');
-        // 如果激活失败，继续创建新窗口
-        _isSettingsWindowOpen = false;
-        _settingsWindowId = null;
-      }
-    }
+  /// 选择并粘贴剪贴板项目（通过系统级热键触发）
+  Future<void> selectClipboardItem(int index) async {
+    debugPrint('🎯 selectClipboardItem: 选择第${index + 1}项');
 
     try {
-      final window = await DesktopMultiWindow.createWindow(
-        jsonEncode({'windowType': 'settings', 'title': 'Settings'}),
-      );
+      // 通过 Get 获取控制器
+      final controller = Get.find<ClipboardController>();
+      final items = controller.items;
 
-      _settingsWindowId = window.windowId;
-      _settingsWindowController = window;
+      if (index < items.length) {
+        final item = items[index];
+        debugPrint(
+          '📋 选择的项目: ${item.content.substring(0, item.content.length > 30 ? 30 : item.content.length)}...',
+        );
 
-      // 设置窗口属性
-      await window.setFrame(const Offset(0, 0) & const Size(600, 500));
-      await window.center();
-      await window.setTitle('Settings');
+        // 1. 复制到剪贴板
+        await controller.copyToClipboard(item.content);
+        debugPrint('📋 内容已复制到剪贴板');
 
-      // 显示窗口 - show() 方法会自动将窗口带到前面
-      await window.show();
+        // 2. 隐藏窗口
+        await hideClipboardHistory();
+        debugPrint('🙈 窗口已隐藏');
 
-      _isSettingsWindowOpen = true;
-      debugPrint('✓ Settings window created and shown');
+        // 3. 模拟粘贴
+        await simulatePaste();
+        debugPrint('🎉 自动粘贴完成');
+      } else {
+        debugPrint('⚠️ 选择的索引超出范围: $index >= ${items.length}');
+      }
     } catch (e) {
-      debugPrint('Error creating settings window: $e');
+      debugPrint('❌ 选择剪贴板项目失败: $e');
     }
+  }
+
+  /// 将设置显示为对话框
+  void showSettingsDialog() {
+    final context = navigatorKey.currentContext;
+    if (context == null) {
+      debugPrint('❌ 无法显示设置对话框：navigator context为null');
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: true, // 点击外部可关闭
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: SettingsWindow(
+          onClose: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
+  }
+
+  // 为了兼容性保留这个方法
+  void showSettings() {
+    showSettingsDialog();
   }
 
   Future<void> closeClipboardHistory() async {
@@ -144,43 +145,8 @@ class WindowService {
     await hideClipboardHistory();
   }
 
-  Future<void> closeSettings() async {
-    if (_isSettingsWindowOpen && _settingsWindowId != null) {
-      try {
-        final window = WindowController.fromWindowId(_settingsWindowId!);
-        await window.close();
-        _isSettingsWindowOpen = false;
-        _settingsWindowId = null;
-        _settingsWindowController = null;
-        debugPrint('✓ Settings window closed');
-      } catch (e) {
-        debugPrint('Error closing settings window: $e');
-      }
-    }
-  }
-
   Future<void> dispose() async {
-    // 停止定时器
-    _dataUpdateTimer?.cancel();
-    _dataUpdateTimer = null;
-
-    // 真正关闭窗口（应用退出时）
-    if (_historyWindowController != null) {
-      try {
-        await _historyWindowController!.close();
-        debugPrint('✓ Persistent clipboard window closed');
-      } catch (e) {
-        debugPrint('Error closing persistent clipboard window: $e');
-      }
-    }
-    await closeSettings();
-  }
-
-  void resetSettingsWindowState() {
-    _isSettingsWindowOpen = false;
-    _settingsWindowId = null;
-    _settingsWindowController = null;
-    debugPrint('Settings window state has been reset');
+    debugPrint('✓ Window service disposed');
   }
 
   // 从 main.dart 移动过来的模拟粘贴功能
@@ -188,11 +154,6 @@ class WindowService {
     if (Platform.isMacOS) {
       try {
         debugPrint('🍝 开始模拟 Cmd+V 按键...');
-
-        // 等待窗口完全关闭并找到前台应用
-        await Future.delayed(const Duration(milliseconds: 800));
-
-        debugPrint('📝 使用 key code 9 直接模拟 Cmd+V...');
 
         // 方案1: 直接使用 key code
         final result = await Process.run('osascript', [

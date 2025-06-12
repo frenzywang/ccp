@@ -1,11 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
 import '../services/window_service.dart';
-import 'package:ccp/services/window_service.dart';
 
 class ClipboardHistoryWindow extends StatelessWidget {
   const ClipboardHistoryWindow({super.key});
@@ -19,28 +17,48 @@ class ClipboardHistoryWindow extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: GestureDetector(
-        // 点击空白区域隐藏窗口
-        onTap: () {
-          debugPrint('👆 点击空白区域，隐藏窗口');
-          WindowService().hideClipboardHistory();
+      body: RawKeyboardListener(
+        focusNode: FocusNode(),
+        onKey: (RawKeyEvent event) {
+          if (event is RawKeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.escape) {
+            debugPrint('⌨️ ESC键隐藏窗口');
+            WindowService().hideClipboardHistory();
+          }
         },
-        child: Focus(
-          autofocus: true,
-          onKeyEvent: (node, event) => _handleKeyEvent(node, event, controller),
-          child: GestureDetector(
-            // 防止内容区域的点击事件冒泡
-            onTap: () {},
-            child: Container(
-              width: double.infinity,
-              height: double.infinity,
-              child: Column(
-                children: [
-                  // 标题栏
-                  _buildHeader(),
-                  // 内容区域
-                  Expanded(child: _buildContent(controller)),
-                ],
+        child: GestureDetector(
+          // 点击空白区域隐藏窗口
+          onTap: () {
+            debugPrint('👆 点击空白区域，隐藏窗口');
+            WindowService().hideClipboardHistory();
+          },
+          child: Focus(
+            autofocus: false, // 不自动获得焦点，避免抢夺原应用焦点
+            onFocusChange: (hasFocus) {
+              if (!hasFocus) {
+                debugPrint('🙈 剪贴板窗口失去焦点，自动隐藏');
+                // 延迟隐藏，避免立即触发
+                Future.delayed(const Duration(milliseconds: 200), () {
+                  WindowService().hideClipboardHistory();
+                });
+              }
+            },
+            onKeyEvent: (node, event) =>
+                _handleKeyEvent(node, event, controller),
+            child: GestureDetector(
+              // 防止内容区域的点击事件冒泡
+              onTap: () {},
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                child: Column(
+                  children: [
+                    // 标题栏
+                    _buildHeader(),
+                    // 内容区域
+                    Expanded(child: _buildContent(controller)),
+                  ],
+                ),
               ),
             ),
           ),
@@ -77,19 +95,6 @@ class ClipboardHistoryWindow extends StatelessWidget {
               WindowService().showSettings();
             },
             tooltip: 'Settings',
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: () {
-              debugPrint('❌ 点击关闭按钮，开始隐藏窗口流程');
-              try {
-                WindowService().hideClipboardHistory();
-                debugPrint('✅ WindowService.hideClipboardHistory() 调用完成');
-              } catch (e) {
-                debugPrint('❌ 关闭窗口时出错: $e');
-              }
-            },
-            tooltip: 'Close (Esc)',
           ),
         ],
       ),

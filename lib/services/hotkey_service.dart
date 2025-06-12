@@ -12,6 +12,7 @@ class HotkeyService {
   HotkeyService._internal();
 
   HotKey? _currentHotkey;
+  List<HotKey> _numberHotkeys = []; // 数字热键列表
   void Function()? _onHotkeyPressed;
 
   // 防抖控制
@@ -129,10 +130,83 @@ class HotkeyService {
       );
 
       debugPrint('✅ 热键注册成功: ${getHotkeyDescription()}');
+
+      // 注册数字热键（Cmd+1 到 Cmd+9, Cmd+0）
+      await _registerNumberHotkeys();
     } catch (e) {
       debugPrint('❌ 热键注册失败: $e');
       rethrow;
     }
+  }
+
+  // 注册数字热键用于选择剪贴板项目
+  Future<void> _registerNumberHotkeys() async {
+    try {
+      debugPrint('🔢 注册数字热键...');
+
+      // 先清理已有的数字热键
+      await _unregisterNumberHotkeys();
+
+      // 注册 Cmd+1 到 Cmd+9
+      for (int i = 1; i <= 9; i++) {
+        final hotkey = HotKey(
+          key: _getPhysicalKey('Digit$i'),
+          modifiers: [HotKeyModifier.meta],
+          scope: HotKeyScope.system,
+        );
+
+        await hotKeyManager.register(
+          hotkey,
+          keyDownHandler: (hotKey) {
+            _handleNumberHotkey(i - 1); // 0-based index
+          },
+        );
+
+        _numberHotkeys.add(hotkey);
+      }
+
+      // 注册 Cmd+0 为第10项
+      final hotkey0 = HotKey(
+        key: _getPhysicalKey('Digit0'),
+        modifiers: [HotKeyModifier.meta],
+        scope: HotKeyScope.system,
+      );
+
+      await hotKeyManager.register(
+        hotkey0,
+        keyDownHandler: (hotKey) {
+          _handleNumberHotkey(9); // 第10项，index为9
+        },
+      );
+
+      _numberHotkeys.add(hotkey0);
+
+      debugPrint('✅ 数字热键注册成功: Cmd+1-9, Cmd+0');
+    } catch (e) {
+      debugPrint('❌ 数字热键注册失败: $e');
+    }
+  }
+
+  // 处理数字热键选择
+  void _handleNumberHotkey(int index) {
+    debugPrint('🔢 数字热键触发: 选择第${index + 1}项');
+
+    // 这里需要调用控制器来选择并粘贴对应的项目
+    // 由于是系统级热键，我们需要通过 WindowService 来处理
+    WindowService().selectClipboardItem(index);
+  }
+
+  // 清理数字热键
+  Future<void> _unregisterNumberHotkeys() async {
+    for (final hotkey in _numberHotkeys) {
+      try {
+        await hotKeyManager.unregister(hotkey);
+      } catch (e) {
+        debugPrint('⚠️ 清理数字热键失败: $e');
+      }
+    }
+    _numberHotkeys.clear();
+    debugPrint('✓ 数字热键已清理');
   }
 
   void _handleHotkeyWithDebounce() {
@@ -192,6 +266,9 @@ class HotkeyService {
       }
       _currentHotkey = null;
     }
+
+    // 清理数字热键
+    await _unregisterNumberHotkeys();
 
     // 方法2: 清理所有热键（保险起见）
     try {

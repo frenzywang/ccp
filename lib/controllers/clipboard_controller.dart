@@ -44,6 +44,52 @@ class ClipboardController extends GetxController {
     debugPrint('✅ ClipboardController: 初始化完成');
   }
 
+  // 添加剪贴板项目（单窗口模式）
+  Future<void> addItem(
+    String content, {
+    ClipboardItemType type = ClipboardItemType.text,
+  }) async {
+    debugPrint(
+      '🔥 addItem 被调用，内容: ${content.substring(0, content.length > 30 ? 30 : content.length)}...',
+    );
+    debugPrint('🔥 当前列表长度: ${_items.length}');
+
+    // 过滤重复内容
+    if (_items.any((item) => item.content == content)) {
+      debugPrint(
+        '🔄 内容已存在，移动到顶部: ${content.length > 50 ? '${content.substring(0, 50)}...' : content}',
+      );
+      _items.removeWhere((item) => item.content == content);
+    } else {
+      debugPrint(
+        '➕ 新增剪贴板项目: ${content.length > 50 ? '${content.substring(0, 50)}...' : content}',
+      );
+    }
+
+    // 创建新项目并添加到顶部
+    final newItem = ClipboardItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      content: content,
+      type: type,
+      createdAt: DateTime.now(),
+    );
+
+    _items.insert(0, newItem);
+    debugPrint('🔥 项目已插入，新的列表长度: ${_items.length}');
+
+    // 保持最多100条记录
+    if (_items.length > 100) {
+      _items.removeRange(100, _items.length);
+    }
+
+    // 强制触发响应式更新
+    _items.refresh();
+    _notifyUpdate();
+    debugPrint('📊 单窗口模式：内存数据更新完成，当前 ${_items.length} 条记录');
+    debugPrint('🔥 响应式更新触发器值: ${_updateTrigger.value}');
+    debugPrint('💫 强制刷新RxList完成');
+  }
+
   // 添加剪贴板项目（子进程版本）
   Future<void> addItemInSubProcess(
     String content, {

@@ -18,16 +18,13 @@ class SystemTrayService {
     try {
       // Try to initialize with icon
       try {
-        await _systemTray.initSystemTray(
-          title: "CCP",
-          iconPath: _getIconPath(),
-        );
+        await _systemTray.initSystemTray(title: "", iconPath: _getIconPath());
         debugPrint('System tray initialized with icon');
       } catch (iconError) {
         debugPrint('Warning: Could not initialize with icon: $iconError');
         // Try without specific icon path - use default
         await _systemTray.initSystemTray(
-          title: "CCP",
+          title: "",
           iconPath: '', // Empty icon path
         );
         debugPrint('System tray initialized without icon');

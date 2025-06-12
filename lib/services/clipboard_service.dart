@@ -28,15 +28,8 @@ class ClipboardService {
     debugPrint('🚀 正在初始化剪贴板监听服务...');
 
     try {
-      // 检查进程类型
-      final controller = Get.find<ClipboardController>();
-      if (controller.isMainProcess) {
-        debugPrint('ℹ️ 主进程不需要剪贴板监听，跳过初始化');
-        _isInitializing = false;
-        return;
-      }
-
-      debugPrint('✅ 子进程：开始剪贴板监听初始化');
+      // 在单窗口模式下，直接启动剪贴板监听
+      debugPrint('✅ 单窗口模式：开始剪贴板监听初始化');
 
       // 立即获取当前剪贴板内容并添加到数据服务
       await _addCurrentClipboardContent();
@@ -44,7 +37,7 @@ class ClipboardService {
       // 启动剪贴板监听
       await _startWatching();
 
-      debugPrint('✅ 子进程：剪贴板监听服务初始化完成');
+      debugPrint('✅ 剪贴板监听服务初始化完成');
     } catch (e) {
       debugPrint('❌ 剪贴板监听服务初始化出错: $e');
 
@@ -126,15 +119,9 @@ class ClipboardService {
       try {
         final controller = Get.find<ClipboardController>();
 
-        // 根据进程类型调用不同的方法
-        if (controller.isMainProcess) {
-          // 主进程：只做日志记录，不存储
-          debugPrint('✅ 主进程：剪贴板项目已添加到内存');
-        } else {
-          // 子进程：只更新内存，不存储
-          await controller.addItemInSubProcess(content, type: type);
-          debugPrint('✅ 子进程：剪贴板项目已添加到内存');
-        }
+        // 单窗口模式：直接添加到控制器
+        await controller.addItem(content, type: type);
+        debugPrint('✅ 单窗口模式：剪贴板项目已添加到历史记录');
       } catch (e) {
         debugPrint('❌ 未找到 ClipboardController: $e');
       }
