@@ -12,9 +12,8 @@ import 'keyboard_service.dart';
 import 'hotkey_service.dart';
 import 'clipboard_service.dart';
 
-// 自动粘贴的实现选项
+// 自动粘贴的实现选项，移除禁用选项
 enum PasteMethod {
-  disabled('禁用自动粘贴'),
   swiftNative('自动粘贴（推荐）');
 
   const PasteMethod(this.displayName);
@@ -109,7 +108,7 @@ class WindowService {
         // 2. 隐藏窗口
         await hideClipboardHistory();
 
-        // 3. 模拟粘贴
+        // 3. 自动粘贴
         await simulatePaste();
         print('🎉 自动粘贴完成');
       } else {
@@ -160,25 +159,9 @@ class WindowService {
   // 当前使用的粘贴方法（默认使用Swift Native）
   PasteMethod _currentPasteMethod = PasteMethod.swiftNative;
 
-  // 从 main.dart 移动过来的模拟粘贴功能
+  // 自动粘贴功能，移除禁用选项
   Future<void> simulatePaste() async {
-    switch (_currentPasteMethod) {
-      case PasteMethod.disabled:
-        print('🚫 自动粘贴已禁用，内容已复制到剪贴板，请手动使用 Cmd+V 粘贴');
-        // 可以考虑添加一个系统通知
-        _showPasteNotification();
-        break;
-
-      case PasteMethod.swiftNative:
-        await _simulatePasteWithSwiftNative();
-        break;
-    }
-  }
-
-  // 显示粘贴提示通知
-  void _showPasteNotification() {
-    // 这里可以添加系统通知或其他提示方式
-    print('💡 提示：内容已复制到剪贴板，请手动按 Cmd+V 粘贴');
+    await _simulatePasteWithSwiftNative();
   }
 
   // 使用 Swift Native Method Channel 模拟粘贴
@@ -205,19 +188,14 @@ class WindowService {
       if (success) {
         print('✅ Swift Native 粘贴成功');
       } else {
-        print('❌ Swift Native 粘贴失败，回退到禁用状态');
-        _currentPasteMethod = PasteMethod.disabled;
-        print('🔄 自动切换到禁用粘贴模式');
+        print('❌ Swift Native 粘贴失败');
       }
     } catch (e) {
       print('💥 Swift Native 模拟粘贴异常: $e');
-      // 如果 Swift Native 失败，回退到禁用状态
-      _currentPasteMethod = PasteMethod.disabled;
-      print('🔄 自动切换到禁用粘贴模式');
     }
   }
 
-  // 设置粘贴方法
+  // 设置粘贴方法（现在只支持自动粘贴）
   void setPasteMethod(PasteMethod method) {
     _currentPasteMethod = method;
     print('🔧 粘贴方法已设置为: ${method.displayName}');

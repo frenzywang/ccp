@@ -5,19 +5,6 @@ import 'crash_handler_service.dart';
 class KeyboardService {
   static const MethodChannel _channel = MethodChannel('com.ccp.keyboard');
 
-  /// 强制请求辅助功能权限（会触发系统对话框）
-  static Future<bool> forceRequestAccessibilityPermission() async {
-    try {
-      final result = await _channel.invokeMethod(
-        'forceRequestAccessibilityPermission',
-      );
-      return result == true;
-    } catch (e) {
-      print('❌ 强制请求辅助功能权限失败: $e');
-      return false;
-    }
-  }
-
   /// 检查是否有辅助功能权限
   static Future<bool> hasAccessibilityPermission() async {
     try {

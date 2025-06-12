@@ -21,12 +21,6 @@ class SettingsController extends GetxController {
   final RxInt maxItems = 50.obs;
   final RxBool isRecording = false.obs;
 
-  // 添加粘贴方法设置
-  final RxString pasteMethod = 'swiftNative'.obs;
-
-  // 新增：直接使用 PasteMethod 枚举的响应式属性
-  final Rx<PasteMethod> currentPasteMethod = PasteMethod.swiftNative.obs;
-
   VoidCallback? onCloseCallback;
 
   @override
@@ -47,39 +41,6 @@ class SettingsController extends GetxController {
 
   void loadCurrentSettings() {
     maxItems.value = 50;
-    // 加载当前粘贴方法设置
-    _loadPasteMethodSettings();
-  }
-
-  void _loadPasteMethodSettings() {
-    // 从 WindowService 获取当前粘贴方法
-    final currentMethod = _windowService.currentPasteMethod;
-    currentPasteMethod.value = currentMethod;
-    switch (currentMethod) {
-      case PasteMethod.disabled:
-        pasteMethod.value = 'disabled';
-        break;
-      case PasteMethod.swiftNative:
-        pasteMethod.value = 'swiftNative';
-        break;
-    }
-  }
-
-  void updatePasteMethod(PasteMethod method) {
-    currentPasteMethod.value = method;
-
-    // 保持向后兼容的字符串值
-    switch (method) {
-      case PasteMethod.disabled:
-        pasteMethod.value = 'disabled';
-        break;
-      case PasteMethod.swiftNative:
-        pasteMethod.value = 'swiftNative';
-        break;
-    }
-
-    // 立即应用设置到 WindowService
-    _windowService.setPasteMethod(method);
   }
 
   void startRecording() {
@@ -183,9 +144,6 @@ class SettingsController extends GetxController {
         selectedKey.value,
         selectedModifiers.value.toList(),
       );
-
-      // 保存粘贴方法设置（已经在 updatePasteMethod 中实时应用了）
-      print('🔧 粘贴方法设置已保存: ${pasteMethod.value}');
 
       Get.snackbar('成功', '设置已保存');
     } catch (e) {

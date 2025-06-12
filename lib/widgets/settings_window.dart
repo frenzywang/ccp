@@ -244,7 +244,7 @@ class SettingsWindow extends StatelessWidget {
                       ),
                       const SizedBox(height: 24),
 
-                      // Auto Paste Settings - 只显示禁用和自动粘贴
+                      // 自动粘贴说明 - 只显示自动粘贴信息
                       const Text(
                         '自动粘贴设置',
                         style: TextStyle(
@@ -262,31 +262,26 @@ class SettingsWindow extends StatelessWidget {
                             color: Theme.of(context).dividerColor,
                           ),
                         ),
-                        child: Column(
+                        child: const Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Obx(() {
-                              final currentMethod =
-                                  controller.currentPasteMethod.value;
-                              return Column(
-                                children: PasteMethod.values.map((method) {
-                                  return RadioListTile<PasteMethod>(
-                                    title: Text(method.displayName),
-                                    value: method,
-                                    groupValue: currentMethod,
-                                    onChanged: (PasteMethod? value) {
-                                      if (value != null) {
-                                        controller.updatePasteMethod(value);
-                                      }
-                                    },
-                                    contentPadding: EdgeInsets.zero,
-                                  );
-                                }).toList(),
-                              );
-                            }),
-                            const SizedBox(height: 8),
-                            const Text(
-                              '注意：自动粘贴需要辅助功能权限',
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '自动粘贴已启用（推荐）',
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              '选择剪贴板项目后会自动粘贴到当前应用。需要在系统设置中授予辅助功能权限。',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey,
@@ -333,19 +328,6 @@ class SettingsWindow extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _forceRequestAccessibilityPermission,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange.withOpacity(
-                                    0.1,
-                                  ),
-                                  foregroundColor: Colors.orange,
-                                ),
-                                child: const Text('强制申请权限（Debug 模式）'),
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -647,52 +629,6 @@ class SettingsWindow extends StatelessWidget {
           ],
         ),
       );
-    }
-  }
-
-  /// 强制申请辅助功能权限
-  void _forceRequestAccessibilityPermission() async {
-    try {
-      final success =
-          await KeyboardService.forceRequestAccessibilityPermission();
-      if (Get.context != null) {
-        if (success) {
-          ScaffoldMessenger.of(Get.context!).showSnackBar(
-            const SnackBar(
-              content: Text('✅ 权限申请成功！'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          showDialog(
-            context: Get.context!,
-            builder: (context) => AlertDialog(
-              title: const Text('权限申请'),
-              content: const Text(
-                '系统权限对话框已显示，请按照提示操作。\n\n'
-                '如果没有看到对话框，系统设置将自动打开，请手动添加应用到辅助功能列表。\n\n'
-                'Debug 模式下，应用路径可能会变化，建议：\n'
-                '1. 先从列表中移除旧的应用项\n'
-                '2. 重新添加当前的应用\n'
-                '3. 确保开关是打开状态',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('我知道了'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print('强制申请辅助功能权限失败: $e');
-      if (Get.context != null) {
-        ScaffoldMessenger.of(
-          Get.context!,
-        ).showSnackBar(SnackBar(content: Text('强制申请权限失败: $e')));
-      }
     }
   }
 }

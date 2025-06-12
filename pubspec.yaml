@@ -38,6 +38,7 @@ dependencies:
   screen_retriever: ^0.2.0
   window_manager: ^0.5.0
   uuid: ^3.0.7
+  package_info_plus: ^8.0.0
   
   # Clipboard monitoring
   clipboard_watcher: ^0.3.0
