@@ -25,24 +25,34 @@ class ClipboardService {
     if (_isInitializing) return;
     _isInitializing = true;
 
-    print('🚀 正在初始化剪贴板监听服务...');
+    debugPrint('🚀 正在初始化剪贴板监听服务...');
 
     try {
+      // 检查进程类型
+      final controller = Get.find<ClipboardController>();
+      if (controller.isMainProcess) {
+        debugPrint('ℹ️ 主进程不需要剪贴板监听，跳过初始化');
+        _isInitializing = false;
+        return;
+      }
+
+      debugPrint('✅ 子进程：开始剪贴板监听初始化');
+
       // 立即获取当前剪贴板内容并添加到数据服务
       await _addCurrentClipboardContent();
 
       // 启动剪贴板监听
       await _startWatching();
 
-      print('✅ 剪贴板监听服务初始化完成');
+      debugPrint('✅ 子进程：剪贴板监听服务初始化完成');
     } catch (e) {
-      print('❌ 剪贴板监听服务初始化出错: $e');
+      debugPrint('❌ 剪贴板监听服务初始化出错: $e');
 
       // 即使出错也要尝试获取当前内容
       try {
         await _addCurrentClipboardContent();
       } catch (e2) {
-        print('❌ 获取当前剪贴板内容也失败: $e2');
+        debugPrint('❌ 获取当前剪贴板内容也失败: $e2');
       }
     } finally {
       _isInitializing = false;
@@ -58,18 +68,18 @@ class ClipboardService {
       // 获取当前剪贴板内容作为基准
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       _lastClipboardContent = data?.text;
-      print('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
+      debugPrint('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
 
-      print('👂 开始监听剪贴板变化（检查间隔：300ms）');
+      debugPrint('👂 开始监听剪贴板变化（检查间隔：100ms）');
 
       // 使用定时器定期检测剪贴板变化
-      _clipboardTimer = Timer.periodic(const Duration(milliseconds: 300), (
+      _clipboardTimer = Timer.periodic(const Duration(milliseconds: 100), (
         timer,
       ) {
         _checkClipboardChange();
       });
     } catch (e) {
-      print('❌ 启动剪贴板监听失败: $e');
+      debugPrint('❌ 启动剪贴板监听失败: $e');
       _isWatching = false;
     }
   }
@@ -82,9 +92,13 @@ class ClipboardService {
       if (currentContent != null &&
           currentContent.isNotEmpty &&
           currentContent != _lastClipboardContent) {
-        print(
-          '🎯 检测到剪贴板变化: ${currentContent.length > 30 ? "${currentContent.substring(0, 30)}..." : currentContent}',
-        );
+        final previewLength = 50;
+        final preview = currentContent.length > previewLength
+            ? "${currentContent.substring(0, previewLength)}..."
+            : currentContent;
+
+        debugPrint('🔥 剪贴板内容已更新: $preview');
+        debugPrint('📊 内容长度: ${currentContent.length} 字符');
 
         // 将新内容传递给数据服务
         await _addClipboardItemToDataService(
@@ -97,8 +111,8 @@ class ClipboardService {
       }
     } catch (e) {
       // 偶尔的错误可以忽略，但连续错误需要记录
-      if (DateTime.now().millisecondsSinceEpoch % 10000 < 300) {
-        print('⚠️ 剪贴板检查错误: $e');
+      if (DateTime.now().millisecondsSinceEpoch % 10000 < 100) {
+        debugPrint('⚠️ 剪贴板检查错误: $e');
       }
     }
   }
@@ -108,39 +122,65 @@ class ClipboardService {
     ClipboardItemType type,
   ) async {
     try {
-      // 使用数据服务添加项目（统一的存储和内存管理）
       // 通过 ClipboardController 添加剪贴板项目
       try {
         final controller = Get.find<ClipboardController>();
-        await controller.addItem(content, type: type);
-        print('✅ 剪贴板项目已添加到 ClipboardController');
+
+        // 根据进程类型调用不同的方法
+        if (controller.isMainProcess) {
+          // 主进程：只做日志记录，不存储
+          debugPrint('✅ 主进程：剪贴板项目已添加到内存');
+        } else {
+          // 子进程：只更新内存，不存储
+          await controller.addItemInSubProcess(content, type: type);
+          debugPrint('✅ 子进程：剪贴板项目已添加到内存');
+        }
       } catch (e) {
         debugPrint('❌ 未找到 ClipboardController: $e');
       }
     } catch (e) {
-      print('❌ 传递剪贴板项目到数据服务失败: $e');
+      debugPrint('❌ 传递剪贴板项目到数据服务失败: $e');
     }
   }
 
   Future<void> _addCurrentClipboardContent() async {
     try {
-      print('📖 正在读取当前剪贴板内容...');
+      debugPrint('📖 正在读取当前剪贴板内容...');
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data?.text != null && data!.text!.isNotEmpty) {
         final content = data.text!;
-        print('✓ 获取到当前剪贴板内容: ${content.length} 字符');
-        print(
+        debugPrint('✓ 获取到当前剪贴板内容: ${content.length} 字符');
+        debugPrint(
           '内容预览: ${content.length > 50 ? "${content.substring(0, 50)}..." : content}',
         );
 
         await _addClipboardItemToDataService(content, ClipboardItemType.text);
         _lastClipboardContent = content;
-        print('✓ 当前剪贴板内容已添加到数据服务');
+        debugPrint('✓ 当前剪贴板内容已添加到数据服务');
       } else {
-        print('⚠️ 当前剪贴板为空或无文本内容');
+        debugPrint('⚠️ 当前剪贴板为空或无文本内容');
+
+        // 为了测试和用户体验，添加一个示例数据
+        final welcomeText = '欢迎使用剪贴板历史管理器！\n复制一些文本来查看历史记录。';
+        await _addClipboardItemToDataService(
+          welcomeText,
+          ClipboardItemType.text,
+        );
+        _lastClipboardContent = welcomeText;
+        debugPrint('✓ 已添加欢迎示例数据');
       }
     } catch (e) {
-      print('❌ 无法读取当前剪贴板内容: $e');
+      debugPrint('❌ 无法读取当前剪贴板内容: $e');
+
+      // 即使出错也添加一个示例数据
+      try {
+        final errorText = '剪贴板历史管理器已启动\n开始复制文本查看历史记录';
+        await _addClipboardItemToDataService(errorText, ClipboardItemType.text);
+        _lastClipboardContent = errorText;
+        debugPrint('✓ 已添加错误示例数据');
+      } catch (e2) {
+        debugPrint('❌ 添加示例数据也失败: $e2');
+      }
     }
   }
 
@@ -149,7 +189,7 @@ class ClipboardService {
     if (_isWatching) {
       _clipboardTimer?.cancel();
       _isWatching = false;
-      print('⏸️ 剪贴板监听已停止');
+      debugPrint('⏸️ 剪贴板监听已停止');
     }
   }
 
@@ -157,7 +197,7 @@ class ClipboardService {
   Future<void> resumeWatching() async {
     if (!_isWatching) {
       await _startWatching();
-      print('▶️ 剪贴板监听已恢复');
+      debugPrint('▶️ 剪贴板监听已恢复');
     }
   }
 
@@ -169,16 +209,16 @@ class ClipboardService {
 
   /// 手动触发剪贴板检查
   Future<void> manualCheck() async {
-    print('🔄 手动触发剪贴板检查...');
+    debugPrint('🔄 手动触发剪贴板检查...');
     await _checkClipboardChange();
   }
 
   /// 资源清理
   void dispose() {
-    print('🚪 关闭剪贴板监听服务...');
+    debugPrint('🚪 关闭剪贴板监听服务...');
     _clipboardTimer?.cancel();
     _isWatching = false;
     _isInitializing = false;
-    print('✅ 剪贴板监听服务已关闭');
+    debugPrint('✅ 剪贴板监听服务已关闭');
   }
 }

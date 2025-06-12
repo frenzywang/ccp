@@ -32,13 +32,12 @@ class SettingsController extends GetxController {
   }
 
   void closeWindow() {
-    print('🚪 SettingsController.closeWindow() 被调用');
+    debugPrint('🚪 SettingsController.closeWindow() 被调用');
     onCloseCallback?.call();
-    print('📞 关闭回调已执行');
+    debugPrint('📞 关闭回调已执行');
   }
 
   void loadCurrentSettings() {
-    // maxItems 现在在 DataManager 中管理，设置为默认值
     maxItems.value = 50;
   }
 
@@ -143,7 +142,6 @@ class SettingsController extends GetxController {
         selectedKey.value,
         selectedModifiers.value.toList(),
       );
-      // maxItems 现在由 DataManager 管理，这里只保存热键配置
 
       Get.snackbar('成功', '设置已保存');
     } catch (e) {

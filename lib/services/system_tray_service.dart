@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:system_tray/system_tray.dart';
 
 class SystemTrayService {
@@ -21,21 +22,21 @@ class SystemTrayService {
           title: "CCP",
           iconPath: _getIconPath(),
         );
-        print('System tray initialized with icon');
+        debugPrint('System tray initialized with icon');
       } catch (iconError) {
-        print('Warning: Could not initialize with icon: $iconError');
+        debugPrint('Warning: Could not initialize with icon: $iconError');
         // Try without specific icon path - use default
         await _systemTray.initSystemTray(
           title: "CCP",
           iconPath: '', // Empty icon path
         );
-        print('System tray initialized without icon');
+        debugPrint('System tray initialized without icon');
       }
 
       await _buildMenu();
-      print('System tray menu built successfully');
+      debugPrint('System tray menu built successfully');
     } catch (e) {
-      print('Error initializing system tray: $e');
+      debugPrint('Error initializing system tray: $e');
       rethrow; // Re-throw to let caller handle
     }
   }
@@ -68,7 +69,7 @@ class SystemTrayService {
         isActive ? _getActiveIconPath() : _getIconPath(),
       );
     } catch (e) {
-      print('Error updating tray icon: $e');
+      debugPrint('Error updating tray icon: $e');
     }
   }
 

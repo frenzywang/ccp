@@ -4,169 +4,372 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
+import '../services/window_service.dart';
+import 'package:ccp/services/window_service.dart';
 
 class ClipboardHistoryWindow extends StatelessWidget {
-  final Function(ClipboardItem)? onItemSelected;
-  final VoidCallback? onClose;
-
-  const ClipboardHistoryWindow({super.key, this.onItemSelected, this.onClose});
+  const ClipboardHistoryWindow({super.key});
 
   @override
   Widget build(BuildContext context) {
     debugPrint('🏗️ ClipboardHistoryWindow build开始');
 
-    // 确保ClipboardController已初始化
-    ClipboardController controller;
-    try {
-      controller = Get.find<ClipboardController>();
-      debugPrint('✅ 找到现有的ClipboardController实例');
-    } catch (e) {
-      debugPrint('⚠️ 未找到ClipboardController，创建新实例: $e');
-      controller = Get.put(ClipboardController(), permanent: true);
-    }
+    // 获取Controller实例
+    final controller = Get.find<ClipboardController>();
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: _ClipboardHistoryPage(
-        onItemSelected: onItemSelected,
-        onClose: onClose,
-        controller: controller,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: GestureDetector(
+        // 点击空白区域隐藏窗口
+        onTap: () {
+          debugPrint('👆 点击空白区域，隐藏窗口');
+          WindowService().hideClipboardHistory();
+        },
+        child: Focus(
+          autofocus: true,
+          onKeyEvent: (node, event) => _handleKeyEvent(node, event, controller),
+          child: GestureDetector(
+            // 防止内容区域的点击事件冒泡
+            onTap: () {},
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              child: Column(
+                children: [
+                  // 标题栏
+                  _buildHeader(),
+                  // 内容区域
+                  Expanded(child: _buildContent(controller)),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
-}
 
-class _ClipboardHistoryPage extends StatefulWidget {
-  final Function(ClipboardItem)? onItemSelected;
-  final VoidCallback? onClose;
-  final ClipboardController controller;
+  Widget _buildHeader() {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.content_paste, color: Colors.grey, size: 20),
+          const SizedBox(width: 8),
+          const Text(
+            'Clipboard History',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.settings, size: 18),
+            onPressed: () {
+              debugPrint('⚙️ 点击设置按钮，打开设置窗口');
+              WindowService().showSettings();
+            },
+            tooltip: 'Settings',
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () {
+              debugPrint('❌ 点击关闭按钮，开始隐藏窗口流程');
+              try {
+                WindowService().hideClipboardHistory();
+                debugPrint('✅ WindowService.hideClipboardHistory() 调用完成');
+              } catch (e) {
+                debugPrint('❌ 关闭窗口时出错: $e');
+              }
+            },
+            tooltip: 'Close (Esc)',
+          ),
+        ],
+      ),
+    );
+  }
 
-  const _ClipboardHistoryPage({
-    this.onItemSelected,
-    this.onClose,
-    required this.controller,
-  });
-
-  @override
-  State<_ClipboardHistoryPage> createState() => _ClipboardHistoryPageState();
-}
-
-class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
-  final TextEditingController _searchController = TextEditingController();
-  final RxInt selectedIndex = 0.obs;
-
-  bool _isProcessingKeyEvent = false;
-  Timer? _keyEventTimer;
-  late ClipboardController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    debugPrint('🏗️ _ClipboardHistoryPageState initState开始');
-
-    _controller = widget.controller;
-
-    // 直接使用controller的过滤结果，不需要额外监听
-    // filteredItems 将直接从 controller.filteredItems 获取
-
-    // 监听搜索框变化，使用controller的搜索功能
-    _searchController.addListener(() {
-      _controller.searchItems(_searchController.text);
-    });
-
-    // 立即应用过滤（数据已经在内存中）
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      debugPrint('🔄 PostFrameCallback: 应用初始过滤...');
-      debugPrint('📊 PostFrameCallback: 当前数据总数 = ${_controller.items.length}');
-      _controller.refreshData();
+  Widget _buildContent(ClipboardController controller) {
+    return Obx(() {
+      // 监听更新触发器和列表变化
+      controller.items;
+      final selectedIndex = controller.selectedIndex;
+      final items = List<ClipboardItem>.from(controller.items);
       debugPrint(
-        '✅ PostFrameCallback: 过滤应用完成, filteredItems = ${_controller.filteredItems.length}',
+        '🎨 UI Builder: items=${items.length}, selectedIndex=$selectedIndex',
+      );
+
+      if (items.isEmpty) {
+        debugPrint('📭 显示空状态界面');
+        return const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.content_paste_off, size: 64, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                'No clipboard history',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Copy some text to get started',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+        );
+      }
+
+      debugPrint('📋 显示列表界面，${items.length} 条记录');
+
+      return ListView.builder(
+        primary: true,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        itemCount: items.length,
+        shrinkWrap: false,
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final isSelected = index == selectedIndex;
+          final isTopTen = index < 10;
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.blue.withOpacity(0.1)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: isSelected
+                  ? Border.all(color: Colors.blue.withOpacity(0.3), width: 2)
+                  : null,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _onItemTap(item, controller),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 热键提示圆圈（前10项）
+                      if (isTopTen)
+                        Container(
+                          width: 24,
+                          height: 24,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.8),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '⌘${index == 9 ? '0' : '${index + 1}'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 24,
+                          height: 24,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      // 内容区域
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 文本内容
+                            Text(
+                              _truncateText(item.content, 120),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            // 元数据
+                            Row(
+                              children: [
+                                Text(
+                                  _formatTime(item.createdAt),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${item.content.length} chars',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                if (item.content.length > 120) ...[
+                                  const SizedBox(width: 8),
+                                  const Icon(
+                                    Icons.more_horiz,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       );
     });
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _keyEventTimer?.cancel();
-    super.dispose();
-  }
+  KeyEventResult _handleKeyEvent(
+    FocusNode node,
+    KeyEvent event,
+    ClipboardController controller,
+  ) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
-  void _onItemTap(ClipboardItem item) {
     debugPrint(
-      '🎯 用户选择了项目: ${item.content.length > 50 ? "${item.content.substring(0, 50)}..." : item.content}',
+      '🎹 按键事件: ${event.logicalKey.debugName}, Meta: ${event.logicalKey == LogicalKeyboardKey.meta}',
     );
-    widget.onItemSelected?.call(item);
-    widget.onClose?.call();
-  }
 
-  KeyEventResult _onKeyEvent(KeyEvent event) {
-    if (_isProcessingKeyEvent || event is! KeyDownEvent) {
-      return KeyEventResult.handled;
-    }
-
-    try {
-      _isProcessingKeyEvent = true;
-      _handleKeyDown(event);
-
-      Timer(const Duration(milliseconds: 100), () {
-        _isProcessingKeyEvent = false;
-      });
-
-      return KeyEventResult.handled;
-    } catch (e) {
-      debugPrint('❌ 键盘事件处理错误: $e');
-      _isProcessingKeyEvent = false;
-      return KeyEventResult.handled;
-    }
-  }
-
-  void _handleKeyDown(KeyDownEvent event) {
-    // 处理 Command + 数字键快捷选择
-    if (event.logicalKey.keyId >= LogicalKeyboardKey.digit1.keyId &&
-        event.logicalKey.keyId <= LogicalKeyboardKey.digit9.keyId) {
-      if (HardwareKeyboard.instance.isMetaPressed) {
-        final digitIndex =
-            event.logicalKey.keyId - LogicalKeyboardKey.digit1.keyId;
-        if (digitIndex < _controller.filteredItems.length) {
-          debugPrint('⚡ 快捷键 Cmd+${digitIndex + 1} 选择第${digitIndex + 1}项');
-          _onItemTap(_controller.filteredItems[digitIndex]);
-          return;
-        }
-      }
-    }
+    final items = controller.items;
+    if (items.isEmpty) return KeyEventResult.ignored;
 
     switch (event.logicalKey) {
-      case LogicalKeyboardKey.arrowUp:
-        selectedIndex.value = (selectedIndex.value - 1).clamp(
-          0,
-          _controller.filteredItems.length - 1,
-        );
-        break;
-      case LogicalKeyboardKey.arrowDown:
-        selectedIndex.value = (selectedIndex.value + 1).clamp(
-          0,
-          _controller.filteredItems.length - 1,
-        );
-        break;
+      case LogicalKeyboardKey.escape:
+        debugPrint('🔙 Escape键: 隐藏窗口');
+        WindowService().hideClipboardHistory();
+        return KeyEventResult.handled;
+
       case LogicalKeyboardKey.enter:
-        if (_controller.filteredItems.isNotEmpty &&
-            selectedIndex.value < _controller.filteredItems.length) {
-          _onItemTap(_controller.filteredItems[selectedIndex.value]);
+        debugPrint('✅ Enter键: 选择项目 ${controller.selectedIndex}');
+        if (controller.selectedIndex < items.length) {
+          _onItemTap(items[controller.selectedIndex], controller);
+        }
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.arrowUp:
+        debugPrint('⬆️ 上箭头: 向上选择');
+        controller.moveSelectionUp();
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.arrowDown:
+        debugPrint('⬇️ 下箭头: 向下选择');
+        controller.moveSelectionDown();
+        return KeyEventResult.handled;
+
+      // Command+1-9 快捷键
+      case LogicalKeyboardKey.digit1:
+      case LogicalKeyboardKey.digit2:
+      case LogicalKeyboardKey.digit3:
+      case LogicalKeyboardKey.digit4:
+      case LogicalKeyboardKey.digit5:
+      case LogicalKeyboardKey.digit6:
+      case LogicalKeyboardKey.digit7:
+      case LogicalKeyboardKey.digit8:
+      case LogicalKeyboardKey.digit9:
+        if (HardwareKeyboard.instance.isMetaPressed) {
+          final index =
+              int.parse(event.logicalKey.debugName!.split('digit')[1]) - 1;
+          debugPrint('🔢 Cmd+${index + 1}: 选择项目 $index');
+          if (index < items.length) {
+            _onItemTap(items[index], controller);
+          }
+          return KeyEventResult.handled;
         }
         break;
-      case LogicalKeyboardKey.escape:
-        widget.onClose?.call();
+
+      // Command+0 (选择第10项)
+      case LogicalKeyboardKey.digit0:
+        if (HardwareKeyboard.instance.isMetaPressed) {
+          debugPrint('🔢 Cmd+0: 选择项目 9 (第10项)');
+          if (items.length > 9) {
+            _onItemTap(items[9], controller);
+          }
+          return KeyEventResult.handled;
+        }
         break;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  void _onItemTap(ClipboardItem item, ClipboardController controller) async {
+    final preview = item.content.length > 50
+        ? '${item.content.substring(0, 50)}...'
+        : item.content;
+    debugPrint('📋 选择剪贴板项目: $preview');
+
+    try {
+      // 1. 直接使用 Controller 复制到系统剪贴板
+      await controller.copyToClipboard(item.content);
+      debugPrint('📋 内容已通过GetX复制到剪贴板');
+
+      // 2. 隐藏窗口
+      final windowService = WindowService();
+      await windowService.hideClipboardHistory();
+      debugPrint('🙈 窗口已隐藏');
+
+      // 3. 模拟粘贴
+      await windowService.simulatePaste();
+      debugPrint('🎉 自动粘贴流程完成');
+    } catch (e) {
+      debugPrint('❌ 选择项目时出错: $e');
     }
   }
 
-  String _formatTime(DateTime time) {
+  String _formatTime(DateTime dateTime) {
     final now = DateTime.now();
-    final difference = now.difference(time);
+    final difference = now.difference(dateTime);
 
     if (difference.inMinutes < 1) {
-      return '刚刚';
+      return 'Just now';
     } else if (difference.inHours < 1) {
       return '${difference.inMinutes}分钟前';
     } else if (difference.inDays < 1) {
@@ -179,252 +382,5 @@ class _ClipboardHistoryPageState extends State<_ClipboardHistoryPage> {
   String _truncateText(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength)}...';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Focus(
-        autofocus: true,
-        onKeyEvent: (node, event) => _onKeyEvent(event),
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          color: Colors.white,
-          child: Column(
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF8F9FA),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.history, size: 20),
-                    const SizedBox(width: 8),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () {
-                        debugPrint('🚪 关闭按钮被点击');
-                        widget.onClose?.call();
-                      },
-                      icon: const Icon(Icons.close, size: 18),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.red.withOpacity(0.1),
-                        foregroundColor: Colors.red,
-                        minimumSize: const Size(32, 32),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Search bar
-              Container(
-                padding: const EdgeInsets.all(12),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: '搜索剪贴板历史...',
-                    prefixIcon: const Icon(Icons.search, size: 18),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF1F3F4),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                  ),
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ),
-              // Content
-              Expanded(
-                child: Obx(() {
-                  debugPrint(
-                    '🎨 UI Builder: items=${_controller.items.length}',
-                  );
-
-                  debugPrint(
-                    '📱 显示数据界面，filteredItems=${_controller.filteredItems.length}',
-                  );
-                  if (_controller.filteredItems.isEmpty) {
-                    debugPrint('📭 显示空状态界面');
-                    return const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.content_paste_off,
-                            size: 64,
-                            color: Colors.grey,
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            '暂无剪贴板历史',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            '复制一些文本开始使用',
-                            style: TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  debugPrint(
-                    '📋 显示列表界面，${_controller.filteredItems.length} 条记录',
-                  );
-                  return ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    itemCount: _controller.filteredItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _controller.filteredItems[index];
-
-                      return Obx(() {
-                        final isSelected = index == selectedIndex.value;
-
-                        return Container(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          child: Material(
-                            color: isSelected
-                                ? Colors.blue.withOpacity(0.1)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () => _onItemTap(item),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    // 序号显示
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? Colors.blue
-                                            : Colors.grey.shade400,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          '${index + 1}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Icon(
-                                      Icons.text_snippet,
-                                      color: isSelected
-                                          ? Colors.blue
-                                          : Colors.grey.shade600,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _truncateText(item.content, 100),
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: isSelected
-                                                  ? FontWeight.w600
-                                                  : FontWeight.normal,
-                                              color: isSelected
-                                                  ? Colors.blue
-                                                  : Colors.black87,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            _formatTime(item.createdAt),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      });
-                    },
-                  );
-                }),
-              ),
-              // Footer
-              Obx(() {
-                if (_controller.filteredItems.isEmpty)
-                  return const SizedBox.shrink();
-
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF8F9FA),
-                    borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '共 ${_controller.filteredItems.length} 条记录',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      Text(
-                        '↑↓ 选择 • Enter 粘贴 • Cmd+1-9 快选 • Esc 退出',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }

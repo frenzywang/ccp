@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/services.dart';
 import 'dart:io' show Platform, Process;
 import 'dart:convert';
 import 'dart:async';
@@ -13,6 +14,7 @@ import 'widgets/clipboard_history_window.dart';
 import 'widgets/settings_window.dart';
 import 'package:get/get.dart';
 import 'controllers/clipboard_controller.dart';
+import 'models/clipboard_item.dart';
 
 // 添加自动粘贴功能的导入
 import 'dart:ffi';
@@ -92,59 +94,105 @@ Future<void> _simulatePaste() async {
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // macOS特定的初始化，减少输入法相关错误
   if (Platform.isMacOS) {
     await _initializeMacOSSpecific();
   }
 
-  // 检查是否是子窗口 - 使用 multi_window 参数检查
   if (args.isNotEmpty && args.first == 'multi_window') {
+    // 这是子窗口 (现在只有设置窗口了)
     final windowId = int.parse(args[1]);
     final windowArgs = args.length > 2 && args[2].isNotEmpty
         ? jsonDecode(args[2]) as Map<String, dynamic>
         : <String, dynamic>{};
 
     debugPrint('Starting sub-window: $windowId with args: $windowArgs');
-
     final windowType = windowArgs['windowType'] as String? ?? 'unknown';
-    final loadFromStorage = windowArgs['loadFromStorage'] as bool? ?? false;
 
-    // 设置为子进程
-    ClipboardController.setProcessType(isMainProcess: false);
-
-    // 这是一个子窗口 - 从存储加载数据
-    await _initializeSubWindow(loadFromStorage);
-
+    // 子窗口不需要任何特殊的服务初始化
     if (windowType == 'settings') {
-      runApp(
-        GetMaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: SettingsApp(windowId: windowId),
-        ),
-      );
-    } else {
-      runApp(
-        GetMaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: ClipboardHistoryApp(windowId: windowId),
-        ),
-      );
+      runApp(SettingsApp(windowId: windowId));
     }
   } else {
-    // 这是主窗口 - 完整初始化所有服务
-    debugPrint('Starting main window');
+    // 这是主窗口 (现在是剪贴板历史列表)
+    debugPrint('Starting main window as Clipboard History');
 
-    // 设置为主进程
-    ClipboardController.setProcessType(isMainProcess: true);
-
-    // 完整初始化主进程
+    // 主窗口需要初始化所有核心服务
     await _initializeMainWindow();
+
+    // 设置方法处理器，以监听窗口事件（如焦点变化）
+    DesktopMultiWindow.setMethodHandler((
+      MethodCall call,
+      int fromWindowId,
+    ) async {
+      switch (call.method) {
+        case 'onWindowFocus':
+          debugPrint("主窗口获得焦点");
+          break;
+        case 'onWindowBlur':
+          debugPrint("主窗口失去焦点，准备隐藏...");
+          // 调用隐藏方法
+          WindowService().hideClipboardHistory();
+          break;
+      }
+    });
 
     // 设置应用退出时的清理
     WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
 
-    runApp(const MyApp());
+    // 主应用直接运行剪贴板历史窗口
+    runApp(const ClipboardHistoryApp(isMainWindow: true));
   }
+}
+
+/// 设置一个方法处理器，用于响应来自子窗口的调用
+void _setupMethodHandler() {
+  DesktopMultiWindow.setMethodHandler((
+    MethodCall call,
+    int fromWindowId,
+  ) async {
+    debugPrint('主窗口收到方法调用: ${call.method} from window $fromWindowId');
+
+    switch (call.method) {
+      // 当子窗口请求剪贴板历史记录时
+      case 'request_history':
+        try {
+          final controller = Get.find<ClipboardController>();
+          // 将 ClipboardItem 列表转换为可序列化的 Map 列表
+          final history = controller.items
+              .map((item) => item.toJson())
+              .toList();
+          debugPrint('准备返回历史记录，共 ${history.length} 条');
+          return history; // 将数据返回给调用方
+        } catch (e) {
+          debugPrint('❌ 处理 request_history 时出错: $e');
+          return []; // 出错时返回空列表
+        }
+
+      // 当子窗口中的某个项目被选中时
+      case 'item_selected':
+        try {
+          // 解析参数
+          final json = call.arguments as Map<String, dynamic>;
+          final item = ClipboardItem.fromJson(json);
+          debugPrint('📋 收到选中项目: ${item.content}');
+
+          // 1. 复制到系统剪贴板
+          final clipboardController = Get.find<ClipboardController>();
+          await clipboardController.copyToClipboard(item.content);
+
+          // 2. 隐藏历史记录窗口
+          await WindowService().hideClipboardHistory();
+
+          // 3. 模拟粘贴
+          await _simulatePaste();
+        } catch (e) {
+          debugPrint('❌ 处理 item_selected 时出错: $e');
+        }
+        break;
+      default:
+        debugPrint('主窗口收到未知的调用: ${call.method}');
+    }
+  });
 }
 
 Future<void> _initializeMacOSSpecific() async {
@@ -164,170 +212,85 @@ Future<void> _initializeMacOSSpecific() async {
   }
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return GetMaterialApp(
-      title: 'Clipboard Manager',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      debugShowCheckedModeBanner: false,
-      home: const MainWindow(),
-    );
-  }
-}
-
-class MainWindow extends StatelessWidget {
-  const MainWindow({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.content_paste, size: 64, color: Colors.blue),
-            const SizedBox(height: 16),
-            const Text(
-              'Clipboard Manager',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Press Cmd+Shift+V to open clipboard history',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () => WindowService().showClipboardHistory(),
-              child: const Text('Open Clipboard History'),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => WindowService().showSettings(),
-              child: const Text('Open Settings'),
-            ),
-            const SizedBox(height: 16),
-            // 使用GetX显示剪贴板状态
-            GetX<ClipboardController>(
-              builder: (controller) {
-                return Column(
-                  children: [
-                    Text(
-                      'Clipboard items: ${controller.items.length}',
-                      style: const TextStyle(fontSize: 14, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 8),
-                    // 显示监听状态而不是加载状态
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.fiber_manual_record,
-                          size: 12,
-                          color: controller.items.isNotEmpty
-                              ? Colors.green
-                              : Colors.grey,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          controller.items.isNotEmpty ? '监听中...' : '等待复制...',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (controller.items.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '最新剪贴板内容:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              controller.items.first.content.length > 100
-                                  ? '${controller.items.first.content.substring(0, 100)}...'
-                                  : controller.items.first.content,
-                              style: const TextStyle(fontSize: 14),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// 剪贴板历史窗口应用
+// 主窗口的应用实例，现在直接是剪贴板历史
 class ClipboardHistoryApp extends StatelessWidget {
-  final int windowId;
+  final int? windowId;
+  final bool isMainWindow;
 
-  const ClipboardHistoryApp({super.key, required this.windowId});
+  const ClipboardHistoryApp({
+    super.key,
+    this.windowId,
+    this.isMainWindow = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ClipboardHistoryWindow(
-      onItemSelected: (item) async {
-        try {
-          debugPrint(
-            '🎯 GetX: 用户选择了项目: ${item.content.length > 50 ? "${item.content.substring(0, 50)}..." : item.content}',
-          );
-
-          // 使用GetX Controller复制到剪贴板
-          final controller = Get.find<ClipboardController>();
-          await controller.copyToClipboard(item.content);
-          debugPrint('📋 内容已通过GetX复制到剪贴板');
-
-          // 关闭窗口
-          debugPrint('🚪 开始关闭窗口...');
-          final windowController = WindowController.fromWindowId(windowId);
-          await windowController.close();
-          debugPrint('✅ 窗口已关闭');
-
-          // 等待窗口关闭，然后执行自动粘贴
-          debugPrint('⏰ 等待窗口关闭后执行自动粘贴...');
-          await Future.delayed(const Duration(milliseconds: 100));
-          await _simulatePaste();
-          debugPrint('🎉 自动粘贴流程完成');
-        } catch (e) {
-          debugPrint('❌ 选择项目时出错: $e');
-        }
-      },
-      onClose: () async {
-        try {
-          debugPrint('关闭剪贴板历史窗口');
-
-          // 关闭窗口
-          final controller = WindowController.fromWindowId(windowId);
-          await controller.close();
-        } catch (e) {
-          debugPrint('关闭窗口时出错: $e');
-        }
-      },
+    // 为了兼容，我们依然使用 GetMaterialApp
+    return GetMaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: ClipboardHistoryWindow(),
     );
   }
+}
+
+// 应用生命周期观察者，用于清理资源
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.detached) {
+      _cleanup();
+    }
+  }
+
+  void _cleanup() async {
+    debugPrint('🧹 应用即将退出，清理资源...');
+
+    // 使用HotkeyService清理热键
+    try {
+      HotkeyService().dispose();
+      debugPrint('✓ 热键已通过HotkeyService清理');
+    } catch (e) {
+      debugPrint('⚠️ 热键清理失败: $e');
+    }
+
+    // 主进程不需要清理ClipboardService
+    debugPrint('✓ 应用资源清理完成');
+  }
+}
+
+/// 初始化主窗口（完整的服务初始化）
+Future<void> _initializeMainWindow() async {
+  debugPrint('🚀 主窗口：开始初始化...');
+
+  try {
+    // 1. 初始化GetX控制器
+    Get.put(ClipboardController(), permanent: true);
+    debugPrint('✅ GetX控制器初始化完成');
+
+    // 2. 在主进程中启动剪贴板监听
+    await ClipboardService().initialize();
+    debugPrint('✅ 剪贴板监听服务启动完成');
+
+    // 3. 初始化窗口服务
+    await WindowService().initialize();
+    await SystemTrayService().initialize();
+    debugPrint('✅ 窗口和系统托盘服务初始化完成');
+
+    // 4. 使用HotkeyService统一管理热键
+    await HotkeyService().initialize();
+    debugPrint('✅ 热键服务初始化完成');
+
+    debugPrint('🎉 主窗口：初始化完成');
+  } catch (e) {
+    debugPrint('❌ 主窗口初始化失败: $e');
+  }
+}
+
+/// 子窗口的初始化现在非常简单，甚至可以不需要
+Future<void> _initializeSubWindow(List<dynamic>? clipboardData) async {
+  debugPrint('ℹ️ 子窗口初始化，当前无需特殊操作。');
+  // 以前的逻辑都移到主窗口了
 }
 
 // 设置窗口应用
@@ -361,87 +324,5 @@ class SettingsApp extends StatelessWidget {
         },
       ),
     );
-  }
-}
-
-// 应用生命周期观察者，用于清理资源
-class _AppLifecycleObserver extends WidgetsBindingObserver {
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.detached) {
-      _cleanup();
-    }
-  }
-
-  void _cleanup() async {
-    debugPrint('🧹 应用即将退出，清理资源...');
-
-    // 保存数据
-    try {
-      await ClipboardDataService().forceSave();
-      debugPrint('✓ 数据已强制保存');
-    } catch (e) {
-      debugPrint('⚠️ 强制保存失败: $e');
-    }
-
-    // 使用HotkeyService清理热键
-    try {
-      HotkeyService().dispose();
-      debugPrint('✓ 热键已通过HotkeyService清理');
-    } catch (e) {
-      debugPrint('⚠️ 热键清理失败: $e');
-    }
-
-    // 清理其他资源
-    ClipboardService().dispose();
-    debugPrint('✓ 应用资源清理完成');
-  }
-}
-
-/// 初始化主窗口（完整的服务初始化）
-Future<void> _initializeMainWindow() async {
-  debugPrint('🚀 主窗口：开始完整初始化...');
-
-  try {
-    // 1. 初始化剪贴板数据服务（包含存储和内存管理）
-    await ClipboardDataService().initialize();
-    debugPrint('✅ 剪贴板数据服务初始化完成');
-
-    // 2. 初始化GetX和全局控制器
-    Get.put(ClipboardController(), permanent: true);
-    debugPrint('✅ GetX控制器初始化完成');
-
-    // 3. 初始化所有窗口服务
-    await WindowService().initialize();
-    await SystemTrayService().initialize();
-    debugPrint('✅ 窗口服务初始化完成');
-
-    // 4. 使用HotkeyService统一管理热键
-    await HotkeyService().initialize();
-    debugPrint('✅ 热键服务初始化完成');
-
-    // 5. 启动剪贴板监听
-    await ClipboardService().initialize();
-    debugPrint('✅ 剪贴板监听启动完成');
-
-    debugPrint('🎉 主窗口：所有服务初始化完成');
-  } catch (e) {
-    debugPrint('❌ 主窗口初始化失败: $e');
-  }
-}
-
-/// 初始化子窗口（超轻量级初始化）
-Future<void> _initializeSubWindow(bool loadFromStorage) async {
-  debugPrint('🚀 子窗口：开始超轻量级初始化...');
-
-  try {
-    // 只初始化GetX控制器，让Controller自己处理数据获取
-    Get.put(ClipboardController(), permanent: true);
-    debugPrint('✅ 子窗口：GetX控制器初始化完成');
-
-    debugPrint('🎉 子窗口：超轻量级初始化完成');
-  } catch (e) {
-    debugPrint('❌ 子窗口初始化失败: $e');
   }
 }

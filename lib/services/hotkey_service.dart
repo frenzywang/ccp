@@ -41,7 +41,7 @@ class HotkeyService {
       _currentConfig = _storageService.getHotkeyConfig('default_hotkey');
 
       if (_currentConfig == null) {
-        print('📝 未找到热键配置，创建默认配置');
+        debugPrint('📝 未找到热键配置，创建默认配置');
         _currentConfig = HotkeyConfig.defaultConfig();
         await _storageService.saveHotkeyConfig(
           'default_hotkey',
@@ -52,9 +52,9 @@ class HotkeyService {
       _defaultKeyCode = _currentConfig!.keyCode;
       _defaultModifiers = _currentConfig!.hotKeyModifiers;
 
-      print('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
+      debugPrint('✅ 热键配置加载成功: ${_currentConfig!.getDescription()}');
     } catch (e) {
-      print('❌ 加载热键配置失败: $e');
+      debugPrint('❌ 加载热键配置失败: $e');
       _setDefaultConfig();
     }
   }
@@ -82,12 +82,12 @@ class HotkeyService {
       _defaultKeyCode = keyCode;
       _defaultModifiers = modifiers;
 
-      print('✅ 热键配置已保存: ${newConfig.getDescription()}');
+      debugPrint('✅ 热键配置已保存: ${newConfig.getDescription()}');
 
       // 先清理再重新注册
       await _cleanupAndRegister();
     } catch (e) {
-      print('❌ 保存热键配置失败: $e');
+      debugPrint('❌ 保存热键配置失败: $e');
     }
   }
 
@@ -294,7 +294,7 @@ class HotkeyService {
   }
 
   void dispose() {
-    print('🧹 HotkeyService: 开始清理资源...');
+    debugPrint('🧹 HotkeyService: 开始清理资源...');
 
     // 取消防抖定时器
     _debounceTimer?.cancel();
@@ -304,6 +304,6 @@ class HotkeyService {
     // 清理热键
     _unregisterHotkey();
 
-    print('✓ HotkeyService: 资源清理完成');
+    debugPrint('✓ HotkeyService: 资源清理完成');
   }
 }
