@@ -6,6 +6,7 @@ import 'services/window_service.dart';
 import 'services/system_tray_service.dart';
 import 'services/hotkey_service.dart';
 import 'services/crash_handler_service.dart';
+import 'services/image_service.dart';
 import 'widgets/clipboard_history_window.dart';
 import 'package:get/get.dart';
 import 'controllers/clipboard_controller.dart';
@@ -119,7 +120,11 @@ Future<void> _initializeMainWindow() async {
     Get.put(ClipboardController(), permanent: true);
     print('✅ GetX控制器初始化完成');
 
-    // 2. 启动剪贴板监听服务
+    // 2. 初始化图片服务
+    await ImageService().initialize();
+    print('✅ 图片服务启动完成');
+
+    // 3. 启动剪贴板监听服务
     await ClipboardService().initialize();
     print('✅ 剪贴板监听服务启动完成');
 

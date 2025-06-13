@@ -32,6 +32,11 @@ class AppDelegate: FlutterAppDelegate {
       }
     })
     
+    // 注册原生剪贴板插件
+    let pluginRegistrar = controller.registrar(forPlugin: "NativeClipboardPlugin")
+    NativeClipboardPlugin.register(with: pluginRegistrar)
+    print("✅ NativeClipboardPlugin 注册成功")
+    
     // 立即处理权限，确保应用自动添加到权限列表
     handleInitialPermissionSetup()
   }
@@ -305,4 +310,418 @@ class AppDelegate: FlutterAppDelegate {
       result(true)
     }
   }
+}
+
+// MARK: - Native Clipboard Plugin
+
+public class NativeClipboardPlugin: NSObject, FlutterPlugin {
+    
+    public static func register(with registrar: FlutterPluginRegistrar) {
+        let channel = FlutterMethodChannel(name: "native_clipboard", binaryMessenger: registrar.messenger)
+        let instance = NativeClipboardPlugin()
+        registrar.addMethodCallDelegate(instance, channel: channel)
+    }
+    
+    public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "hasImage":
+            result(hasImage())
+        case "hasText":
+            result(hasText())
+        case "getImageData":
+            getImageData(result: result)
+        case "getTextData":
+            getTextData(result: result)
+        case "getClipboardType":
+            result(getClipboardType())
+        case "getChangeCount":
+            result(getChangeCount())
+        case "getAllClipboardTypes":
+            result(getAllClipboardTypes())
+        case "getClipboardItemsInfo":
+            getClipboardItemsInfo(result: result)
+        case "setImageData":
+            setImageData(call: call, result: result)
+        case "getFileURLs":
+            getFileURLs(result: result)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+    
+    private func hasImage() -> Bool {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        // 检查是否包含图片类型
+        for type in types {
+            if type == .png || type == .tiff || 
+               type.rawValue == "public.jpeg" ||
+               type.rawValue.hasPrefix("image/") ||
+               type.rawValue.contains("image") {
+                return true
+            }
+        }
+        return false
+    }
+    
+    private func hasText() -> Bool {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        return types.contains(.string)
+    }
+    
+    private func getImageData(result: @escaping FlutterResult) {
+        let pasteboard = NSPasteboard.general
+        
+        // 尝试获取不同格式的图片数据
+        if let data = pasteboard.data(forType: .png) {
+            print("📸 获取到PNG图片数据: \(data.count) 字节")
+            result(FlutterStandardTypedData(bytes: data))
+            return
+        }
+        
+        if let data = pasteboard.data(forType: .tiff) {
+            print("📸 获取到TIFF图片数据: \(data.count) 字节")
+            // 转换TIFF为PNG
+            if let image = NSImage(data: data),
+               let pngData = image.pngData() {
+                result(FlutterStandardTypedData(bytes: pngData))
+                return
+            }
+        }
+        
+        if let data = pasteboard.data(forType: NSPasteboard.PasteboardType("public.jpeg")) {
+            print("📸 获取到JPEG图片数据: \(data.count) 字节")
+            result(FlutterStandardTypedData(bytes: data))
+            return
+        }
+        
+        // 尝试其他图片类型
+        let types = pasteboard.types ?? []
+        for type in types {
+            if type.rawValue.hasPrefix("image/") || type.rawValue.contains("image") {
+                if let data = pasteboard.data(forType: type) {
+                    print("📸 获取到\(type.rawValue)图片数据: \(data.count) 字节")
+                    result(FlutterStandardTypedData(bytes: data))
+                    return
+                }
+            }
+        }
+        
+        print("❌ 未找到剪贴板图片数据")
+        result(nil)
+    }
+    
+    private func getTextData(result: @escaping FlutterResult) {
+        let pasteboard = NSPasteboard.general
+        
+        if let text = pasteboard.string(forType: .string) {
+            print("📝 获取到文本数据: \(text.count) 字符")
+            result(text)
+        } else {
+            print("❌ 未找到剪贴板文本数据")
+            result(nil)
+        }
+    }
+    
+    private func getClipboardType() -> String {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        // 按优先级返回类型
+        for type in types {
+            if type == .png || type == .tiff || 
+               type.rawValue == "public.jpeg" ||
+               type.rawValue.hasPrefix("image/") {
+                return "image"
+            }
+        }
+        
+        for type in types {
+            if type == .fileURL || 
+               type.rawValue.contains("file-list") ||
+               type.rawValue.hasPrefix("dyn.") {
+                return "file"
+            }
+        }
+        
+        for type in types {
+            if type == .string {
+                return "text"
+            }
+        }
+        
+        return "unknown"
+    }
+    
+    private func getChangeCount() -> Int {
+        return NSPasteboard.general.changeCount
+    }
+    
+    private func getAllClipboardTypes() -> [String] {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        return types.map { $0.rawValue }
+    }
+    
+    private func getClipboardItemsInfo(result: @escaping FlutterResult) {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        var itemsInfo: [[String: Any]] = []
+        
+        for type in types {
+            var itemInfo: [String: Any] = [
+                "type": type.rawValue
+            ]
+            
+            // 尝试获取数据大小信息
+            if let data = pasteboard.data(forType: type) {
+                itemInfo["size"] = data.count
+                
+                // 对于文本类型，添加预览
+                if type == .string, let text = pasteboard.string(forType: .string) {
+                    let preview = text.count > 100 ? String(text.prefix(100)) + "..." : text
+                    itemInfo["preview"] = preview
+                    itemInfo["length"] = text.count
+                }
+                
+                // 对于图片类型，尝试获取尺寸
+                if type == .png || type == .tiff || type.rawValue == "public.jpeg" {
+                    if let image = NSImage(data: data) {
+                        itemInfo["width"] = Int(image.size.width)
+                        itemInfo["height"] = Int(image.size.height)
+                    }
+                }
+            }
+            
+            itemsInfo.append(itemInfo)
+        }
+        
+        result(itemsInfo)
+    }
+    
+    private func setImageData(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let imageData = args["imageData"] as? FlutterStandardTypedData else {
+            result(FlutterError(code: "INVALID_ARGUMENTS", message: "缺少图片数据", details: nil))
+            return
+        }
+        
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        
+        // 尝试将数据设置为PNG格式
+        if pasteboard.setData(imageData.data, forType: .png) {
+            print("📸 图片数据已设置到剪贴板: \(imageData.data.count) 字节")
+            result(true)
+        } else {
+            print("❌ 无法设置图片数据到剪贴板")
+            result(false)
+        }
+    }
+    
+    private func getFileURLs(result: @escaping FlutterResult) {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+        
+        print("📁 尝试获取文件URL，可用类型: \(types.map { $0.rawValue })")
+        
+        // 方法1: 尝试使用readObjects
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
+            print("📁 方法1成功: 获取到 \(urls.count) 个URL")
+            if !urls.isEmpty {
+                processFileURLs(urls: urls, result: result)
+                return
+            }
+        }
+        
+        // 方法2: 尝试直接从fileURL类型获取
+        if let urlData = pasteboard.data(forType: .fileURL),
+           let url = URL(dataRepresentation: urlData, relativeTo: nil) {
+            print("📁 方法2成功: 获取到单个URL")
+            processFileURLs(urls: [url], result: result)
+            return
+        }
+        
+        // 方法2.5: 尝试从特殊的动态类型获取文件路径
+        for type in types {
+            if type.rawValue.hasPrefix("dyn.") || type.rawValue.contains("file-list") {
+                if let data = pasteboard.data(forType: type) {
+                    print("📁 方法2.5: 尝试解析动态类型 \(type.rawValue), 数据大小: \(data.count)")
+                    
+                    // 尝试将数据转换为字符串
+                    if let dataString = String(data: data, encoding: .utf8) {
+                        print("📁 数据内容(UTF8): \(dataString)")
+                        if let extractedURLs = extractURLsFromString(dataString) {
+                            processFileURLs(urls: extractedURLs, result: result)
+                            return
+                        }
+                    }
+                    
+                    // 尝试其他编码
+                    if let dataString = String(data: data, encoding: .ascii) {
+                        print("📁 数据内容(ASCII): \(dataString)")
+                        if let extractedURLs = extractURLsFromString(dataString) {
+                            processFileURLs(urls: extractedURLs, result: result)
+                            return
+                        }
+                    }
+                    
+                    // 尝试作为属性列表解析
+                    do {
+                        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                        print("📁 成功解析为属性列表: \(plist)")
+                        if let extractedURLs = extractURLsFromPlist(plist) {
+                            processFileURLs(urls: extractedURLs, result: result)
+                            return
+                        }
+                    } catch {
+                        print("📁 属性列表解析失败: \(error)")
+                    }
+                }
+            }
+        }
+        
+        // 方法3: 尝试从字符串解析文件路径
+        if let stringData = pasteboard.string(forType: .string) {
+            print("📁 方法3: 尝试从字符串解析: \(stringData)")
+            if stringData.hasPrefix("/") || stringData.hasPrefix("file://") {
+                let cleanPath = stringData.replacingOccurrences(of: "file://", with: "")
+                let url = URL(fileURLWithPath: cleanPath)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    print("📁 方法3成功: 解析出文件路径")
+                    processFileURLs(urls: [url], result: result)
+                    return
+                }
+            }
+        }
+        
+        print("❌ 所有方法都失败，未找到文件URL")
+        result([])
+    }
+    
+    private func processFileURLs(urls: [URL], result: @escaping FlutterResult) {
+        var fileInfos: [[String: Any]] = []
+        
+        for url in urls {
+            var fileInfo: [String: Any] = [
+                "path": url.path,
+                "name": url.lastPathComponent
+            ]
+            
+            // 检查文件是否存在
+            if FileManager.default.fileExists(atPath: url.path) {
+                fileInfo["exists"] = true
+                
+                // 获取文件大小
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                    if let fileSize = attributes[.size] as? Int64 {
+                        fileInfo["size"] = fileSize
+                    }
+                } catch {
+                    print("⚠️ 无法获取文件属性: \(error)")
+                }
+                
+                // 检查是否为图片文件
+                let imageExtensions = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif"]
+                let fileExtension = url.pathExtension.lowercased()
+                fileInfo["isImage"] = imageExtensions.contains(fileExtension)
+                fileInfo["extension"] = fileExtension
+                
+                print("📁 文件: \(url.lastPathComponent), 是图片: \(imageExtensions.contains(fileExtension))")
+            } else {
+                fileInfo["exists"] = false
+                print("❌ 文件不存在: \(url.path)")
+            }
+            
+            fileInfos.append(fileInfo)
+        }
+        
+        print("📁 获取到 \(fileInfos.count) 个文件")
+        result(fileInfos)
+    }
+    
+    private func extractURLsFromString(_ string: String) -> [URL]? {
+        var urls: [URL] = []
+        
+        // 尝试按行分割，查找文件路径
+        let lines = string.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("/") && !trimmed.isEmpty {
+                let url = URL(fileURLWithPath: trimmed)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    urls.append(url)
+                    print("📁 从字符串提取到文件路径: \(trimmed)")
+                }
+            } else if trimmed.hasPrefix("file://") {
+                if let url = URL(string: trimmed) {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        urls.append(url)
+                        print("📁 从字符串提取到文件URL: \(trimmed)")
+                    }
+                }
+            }
+        }
+        
+        return urls.isEmpty ? nil : urls
+    }
+    
+    private func extractURLsFromPlist(_ plist: Any) -> [URL]? {
+        var urls: [URL] = []
+        
+        if let array = plist as? [Any] {
+            for item in array {
+                if let urlString = item as? String {
+                    if urlString.hasPrefix("/") {
+                        let url = URL(fileURLWithPath: urlString)
+                        if FileManager.default.fileExists(atPath: url.path) {
+                            urls.append(url)
+                            print("📁 从属性列表提取到文件路径: \(urlString)")
+                        }
+                    } else if urlString.hasPrefix("file://") {
+                        if let url = URL(string: urlString) {
+                            if FileManager.default.fileExists(atPath: url.path) {
+                                urls.append(url)
+                                print("📁 从属性列表提取到文件URL: \(urlString)")
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let dict = plist as? [String: Any] {
+            // 递归搜索字典中的URL
+            for (_, value) in dict {
+                if let extractedURLs = extractURLsFromPlist(value) {
+                    urls.append(contentsOf: extractedURLs)
+                }
+            }
+        } else if let urlString = plist as? String {
+            if urlString.hasPrefix("/") {
+                let url = URL(fileURLWithPath: urlString)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    urls.append(url)
+                    print("📁 从属性列表提取到文件路径: \(urlString)")
+                }
+            }
+        }
+        
+        return urls.isEmpty ? nil : urls
+    }
+}
+
+// 扩展NSImage以支持PNG数据导出
+extension NSImage {
+    func pngData() -> Data? {
+        guard let tiffRepresentation = tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmapImage.representation(using: .png, properties: [:])
+    }
 }

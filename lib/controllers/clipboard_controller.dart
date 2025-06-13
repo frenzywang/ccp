@@ -48,6 +48,9 @@ class ClipboardController extends GetxController {
   Future<void> addItem(
     String content, {
     ClipboardItemType type = ClipboardItemType.text,
+    String? imagePath,
+    int? imageWidth,
+    int? imageHeight,
   }) async {
     print(
       '🔥 addItem 被调用，内容: ${content.substring(0, content.length > 30 ? 30 : content.length)}...',
@@ -72,6 +75,9 @@ class ClipboardController extends GetxController {
       content: content,
       type: type,
       createdAt: DateTime.now(),
+      imagePath: imagePath,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
     );
 
     _items.insert(0, newItem);
@@ -94,6 +100,9 @@ class ClipboardController extends GetxController {
   Future<void> addItemInSubProcess(
     String content, {
     ClipboardItemType type = ClipboardItemType.text,
+    String? imagePath,
+    int? imageWidth,
+    int? imageHeight,
   }) async {
     if (_isMainProcess) {
       print('⚠️ 主进程应使用addItem方法');
@@ -123,6 +132,9 @@ class ClipboardController extends GetxController {
       content: content,
       type: type,
       createdAt: DateTime.now(),
+      imagePath: imagePath,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
     );
 
     _items.insert(0, newItem);

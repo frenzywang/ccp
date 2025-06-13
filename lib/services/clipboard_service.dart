@@ -1,12 +1,15 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
-import 'clipboard_data_service.dart';
 import 'crash_handler_service.dart';
+import 'image_service.dart';
+import 'native_clipboard_service.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:typed_data';
 
 /// 剪贴板监听服务
 /// 负责监听系统剪贴板变化，将新内容传递给 ClipboardDataService
@@ -18,6 +21,7 @@ class ClipboardService {
 
   String? _lastClipboardContent;
   bool _isInitializing = false;
+  int _lastChangeCount = 0; // 跟踪剪贴板变化计数
 
   // 剪贴板监听定时器
   Timer? _clipboardTimer;
@@ -87,12 +91,8 @@ class ClipboardService {
     try {
       _isWatching = true;
 
-      // 获取当前剪贴板内容作为基准
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      _lastClipboardContent = data?.text;
-      print('✓ 基准剪贴板内容: ${_lastClipboardContent?.length ?? 0} 字符');
-
       print('👂 开始监听剪贴板变化（检查间隔：100ms）');
+      print('✓ 使用原生插件监听，基准变化计数: $_lastChangeCount');
 
       // 使用定时器定期检测剪贴板变化
       _clipboardTimer = Timer.periodic(const Duration(milliseconds: 100), (
@@ -113,48 +113,270 @@ class ClipboardService {
         return;
       }
 
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final currentContent = data?.text;
+      // 直接使用原生API检测剪贴板变化（简化版本）
+      try {
+        final currentChangeCount =
+            await NativeClipboardService.getChangeCount();
 
-      if (currentContent != null &&
-          currentContent.isNotEmpty &&
-          currentContent != _lastClipboardContent) {
+        if (currentChangeCount == _lastChangeCount) {
+          return; // 没有变化
+        }
+
+        print('📋 检测到剪贴板变化计数: $currentChangeCount (上次: $_lastChangeCount)');
+        _lastChangeCount = currentChangeCount;
+
+        final clipboardType = await NativeClipboardService.getClipboardType();
+        print('📋 剪贴板类型: $clipboardType');
+
+        // 获取所有类型信息用于调试
+        final allTypes = await NativeClipboardService.getAllClipboardTypes();
+        print('📋 所有剪贴板类型: $allTypes');
+
+        if (clipboardType == 'image') {
+          final hasImage = await NativeClipboardService.hasImage();
+          print('🖼️ 检测到图片类型，hasImage: $hasImage');
+
+          if (hasImage) {
+            final imageData = await NativeClipboardService.getImageData();
+            if (imageData != null && imageData.isNotEmpty) {
+              print('🖼️ 获取到图片数据: ${imageData.length} 字节');
+              await _handleImageClipboard(imageData);
+              return;
+            } else {
+              print('❌ 图片数据为空');
+            }
+          }
+        } else if (clipboardType == 'file') {
+          print('📁 检测到文件类型');
+          await _handleFileClipboard();
+          return;
+        } else if (clipboardType == 'text') {
+          final hasText = await NativeClipboardService.hasText();
+          print('📝 检测到文本类型，hasText: $hasText');
+
+          if (hasText) {
+            final textData = await NativeClipboardService.getTextData();
+            if (textData != null && textData.isNotEmpty) {
+              print('📝 获取到文本数据: ${textData.length} 字符');
+              await _handleTextClipboard(textData);
+              return;
+            } else {
+              print('❌ 文本数据为空');
+            }
+          }
+        } else {
+          print('⚠️ 未知或不支持的剪贴板类型: $clipboardType');
+        }
+      } catch (nativeError) {
+        print('❌ 原生插件调用失败: $nativeError');
+        throw nativeError; // 抛出错误，触发回退机制
+      }
+    } catch (e) {
+      // 如果原生插件失败，回退到Flutter API
+      try {
+        await _handleTextClipboardFallback();
+      } catch (fallbackError) {
+        // 偶尔的错误可以忽略，但连续错误需要记录
+        if (DateTime.now().millisecondsSinceEpoch % 10000 < 100) {
+          print('⚠️ 剪贴板检查错误（原生+回退都失败）: $e, $fallbackError');
+        }
+      }
+    }
+  }
+
+  /// 处理图片剪贴板
+  Future<void> _handleImageClipboard(Uint8List imageData) async {
+    try {
+      print('🖼️ 处理图片剪贴板内容，数据大小: ${imageData.length} 字节');
+
+      // 保存图片并添加到历史记录
+      final imageService = ImageService();
+      final savedImageInfo = await imageService.saveImageData(imageData);
+
+      if (savedImageInfo != null) {
+        await _addClipboardItemToDataService(
+          savedImageInfo['content'],
+          ClipboardItemType.image,
+          imagePath: savedImageInfo['imagePath'],
+          imageWidth: savedImageInfo['imageWidth'],
+          imageHeight: savedImageInfo['imageHeight'],
+        );
+        print('✅ 图片已保存并添加到历史记录');
+
+        // 清空文本内容，因为现在是图片
+        _lastClipboardContent = null;
+      } else {
+        print('❌ 保存图片失败');
+      }
+    } catch (e) {
+      print('❌ 处理图片剪贴板失败: $e');
+    }
+  }
+
+  /// 处理文件剪贴板
+  Future<void> _handleFileClipboard() async {
+    try {
+      final fileInfos = await NativeClipboardService.getFileURLs();
+      print('📁 获取到 ${fileInfos.length} 个文件');
+
+      for (final fileInfo in fileInfos) {
+        // 安全的类型转换
+        final Map<String, dynamic> safeFileInfo = Map<String, dynamic>.from(
+          fileInfo,
+        );
+        final filePath = safeFileInfo['path'] as String?;
+        final fileName = safeFileInfo['name'] as String?;
+        final isImage = safeFileInfo['isImage'] as bool? ?? false;
+        final exists = safeFileInfo['exists'] as bool? ?? false;
+
+        if (filePath == null || fileName == null || !exists) {
+          print('⚠️ 跳过无效文件: $fileName');
+          continue;
+        }
+
+        print('📁 处理文件: $fileName, 是图片: $isImage');
+
+        if (isImage) {
+          // 如果是图片文件，读取文件内容并保存
+          await _handleImageFile(filePath, fileName);
+        } else {
+          // 如果是其他文件，保存文件路径信息
+          await _handleOtherFile(filePath, fileName);
+        }
+      }
+    } catch (e) {
+      print('❌ 处理文件剪贴板失败: $e');
+    }
+  }
+
+  /// 处理图片文件
+  Future<void> _handleImageFile(String filePath, String fileName) async {
+    try {
+      final File imageFile = File(filePath);
+      if (!await imageFile.exists()) {
+        print('❌ 图片文件不存在: $filePath');
+        return;
+      }
+
+      final Uint8List imageData = await imageFile.readAsBytes();
+      print('📁 读取图片文件: $fileName, ${imageData.length} 字节');
+
+      // 保存图片并添加到历史记录
+      final imageService = ImageService();
+      final savedImageInfo = await imageService.saveImageData(imageData);
+
+      if (savedImageInfo != null) {
+        await _addClipboardItemToDataService(
+          savedImageInfo['content'],
+          ClipboardItemType.image,
+          imagePath: savedImageInfo['imagePath'],
+          imageWidth: savedImageInfo['imageWidth'],
+          imageHeight: savedImageInfo['imageHeight'],
+        );
+        print('✅ 图片文件已保存并添加到历史记录: $fileName');
+
+        // 清空文本内容，因为现在是图片
+        _lastClipboardContent = null;
+      } else {
+        print('❌ 保存图片文件失败: $fileName');
+      }
+    } catch (e) {
+      print('❌ 处理图片文件失败: $e');
+    }
+  }
+
+  /// 处理其他文件
+  Future<void> _handleOtherFile(String filePath, String fileName) async {
+    try {
+      final content = '文件: $fileName';
+      print('📁 处理其他文件: $fileName');
+
+      await _addClipboardItemToDataService(content, ClipboardItemType.text);
+
+      _lastClipboardContent = content;
+      print('✅ 文件信息已添加到历史记录: $fileName');
+    } catch (e) {
+      print('❌ 处理其他文件失败: $e');
+    }
+  }
+
+  /// 处理文本剪贴板
+  Future<void> _handleTextClipboard(String textContent) async {
+    try {
+      if (textContent.isNotEmpty && textContent != _lastClipboardContent) {
         final previewLength = 50;
-        final preview = currentContent.length > previewLength
-            ? "${currentContent.substring(0, previewLength)}..."
-            : currentContent;
+        final preview = textContent.length > previewLength
+            ? "${textContent.substring(0, previewLength)}..."
+            : textContent;
 
-        print('🔥 剪贴板内容已更新: $preview');
-        print('📊 内容长度: ${currentContent.length} 字符');
+        print('🔥 剪贴板文本内容已更新: $preview');
+        print('📊 内容长度: ${textContent.length} 字符');
 
         // 将新内容传递给数据服务
         await _addClipboardItemToDataService(
-          currentContent,
+          textContent,
           ClipboardItemType.text,
         );
 
         // 更新最后已知内容
-        _lastClipboardContent = currentContent;
+        _lastClipboardContent = textContent;
       }
     } catch (e) {
-      // 偶尔的错误可以忽略，但连续错误需要记录
-      if (DateTime.now().millisecondsSinceEpoch % 10000 < 100) {
-        print('⚠️ 剪贴板检查错误: $e');
+      print('❌ 处理文本剪贴板失败: $e');
+    }
+  }
+
+  /// 备用的文本剪贴板处理（使用Flutter API）
+  Future<void> _handleTextClipboardFallback() async {
+    try {
+      final textData = await Clipboard.getData(Clipboard.kTextPlain);
+      final currentTextContent = textData?.text;
+
+      if (currentTextContent != null &&
+          currentTextContent.isNotEmpty &&
+          currentTextContent != _lastClipboardContent) {
+        final previewLength = 50;
+        final preview = currentTextContent.length > previewLength
+            ? "${currentTextContent.substring(0, previewLength)}..."
+            : currentTextContent;
+
+        print('🔥 剪贴板文本内容已更新: $preview');
+        print('📊 内容长度: ${currentTextContent.length} 字符');
+
+        // 将新内容传递给数据服务
+        await _addClipboardItemToDataService(
+          currentTextContent,
+          ClipboardItemType.text,
+        );
+
+        // 更新最后已知内容
+        _lastClipboardContent = currentTextContent;
       }
+    } catch (e) {
+      print('❌ 处理文本剪贴板失败: $e');
     }
   }
 
   Future<void> _addClipboardItemToDataService(
     String content,
-    ClipboardItemType type,
-  ) async {
+    ClipboardItemType type, {
+    String? imagePath,
+    int? imageWidth,
+    int? imageHeight,
+  }) async {
     try {
       // 通过 ClipboardController 添加剪贴板项目
       try {
         final controller = Get.find<ClipboardController>();
 
         // 单窗口模式：直接添加到控制器
-        await controller.addItem(content, type: type);
+        await controller.addItem(
+          content,
+          type: type,
+          imagePath: imagePath,
+          imageWidth: imageWidth,
+          imageHeight: imageHeight,
+        );
         print('✅ 单窗口模式：剪贴板项目已添加到历史记录');
       } catch (e) {
         print('❌ 未找到 ClipboardController: $e');
@@ -167,69 +389,78 @@ class ClipboardService {
   /// 初始化当前剪贴板内容
   Future<void> _initializeCurrentClipboard() async {
     try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      if (data?.text != null && data!.text!.isNotEmpty) {
-        _lastClipboardContent = data.text!;
-        final preview = _lastClipboardContent!.length > 50
-            ? '${_lastClipboardContent!.substring(0, 50)}...'
-            : _lastClipboardContent!;
-        print('📋 当前剪贴板内容: $preview');
+      // 获取当前剪贴板变化计数作为基准
+      _lastChangeCount = await NativeClipboardService.getChangeCount();
+      print('📋 初始化剪贴板变化计数: $_lastChangeCount');
 
-        // 将当前剪贴板内容添加到历史记录
-        await _addClipboardItemToDataService(
-          _lastClipboardContent!,
-          ClipboardItemType.text,
-        );
-        print('✅ 当前剪贴板内容已添加到历史记录');
+      // 检查当前剪贴板类型
+      final clipboardType = await NativeClipboardService.getClipboardType();
+      print('📋 当前剪贴板类型: $clipboardType');
+
+      if (clipboardType == 'text') {
+        final textContent = await NativeClipboardService.getTextData();
+        if (textContent != null && textContent.isNotEmpty) {
+          _lastClipboardContent = textContent;
+          final preview = textContent.length > 50
+              ? '${textContent.substring(0, 50)}...'
+              : textContent;
+          print('📋 当前剪贴板内容: $preview');
+
+          // 将当前剪贴板内容添加到历史记录
+          await _addClipboardItemToDataService(
+            textContent,
+            ClipboardItemType.text,
+          );
+          print('✅ 当前剪贴板内容已添加到历史记录');
+        }
+      } else if (clipboardType == 'image') {
+        final imageData = await NativeClipboardService.getImageData();
+        if (imageData != null && imageData.isNotEmpty) {
+          print('📋 当前剪贴板包含图片: ${imageData.length} 字节');
+
+          // 保存图片并添加到历史记录
+          final imageService = ImageService();
+          final savedImageInfo = await imageService.saveImageData(imageData);
+
+          if (savedImageInfo != null) {
+            await _addClipboardItemToDataService(
+              savedImageInfo['content'],
+              ClipboardItemType.image,
+              imagePath: savedImageInfo['imagePath'],
+              imageWidth: savedImageInfo['imageWidth'],
+              imageHeight: savedImageInfo['imageHeight'],
+            );
+            print('✅ 当前剪贴板图片已添加到历史记录');
+          }
+        }
       } else {
-        print('📋 当前剪贴板为空或无文本内容');
+        print('📋 当前剪贴板为空或包含未知类型内容');
       }
     } catch (e, stack) {
       print('⚠️ 读取当前剪贴板内容失败: $e');
+      print('🔄 回退到Flutter API读取剪贴板内容');
+
+      // 如果原生API失败，回退到Flutter API
+      try {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        if (data?.text != null && data!.text!.isNotEmpty) {
+          _lastClipboardContent = data.text!;
+          final preview = _lastClipboardContent!.length > 50
+              ? '${_lastClipboardContent!.substring(0, 50)}...'
+              : _lastClipboardContent!;
+          print('📋 当前剪贴板内容（Flutter API）: $preview');
+
+          await _addClipboardItemToDataService(
+            _lastClipboardContent!,
+            ClipboardItemType.text,
+          );
+          print('✅ 当前剪贴板内容已添加到历史记录（Flutter API）');
+        }
+      } catch (fallbackError) {
+        print('❌ Flutter API读取剪贴板也失败: $fallbackError');
+      }
+
       await CrashHandlerService().logError('读取剪贴板内容失败', e, stack);
-    }
-  }
-
-  /// 剪贴板变化回调
-  void _onClipboardChanged() async {
-    try {
-      if (!_isWatching) return;
-
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      if (data?.text == null || data!.text!.isEmpty) {
-        return;
-      }
-
-      final newContent = data.text!;
-
-      // 检查是否是重复内容
-      if (_lastClipboardContent == newContent) {
-        return;
-      }
-
-      _lastClipboardContent = newContent;
-
-      final preview = newContent.length > 50
-          ? '${newContent.substring(0, 50)}...'
-          : newContent;
-      print('📋 剪贴板内容已变化: $preview');
-
-      // 创建剪贴板项目
-      final item = ClipboardItem(
-        id: const Uuid().v4(),
-        content: newContent,
-        createdAt: DateTime.now(),
-        type: ClipboardItemType.text,
-      );
-
-      // 更新控制器
-      final controller = Get.find<ClipboardController>();
-      controller.addItem(item.content);
-
-      print('✅ 剪贴板项目已添加到历史记录');
-    } catch (e, stack) {
-      print('❌ 处理剪贴板变化失败: $e');
-      await CrashHandlerService().logError('处理剪贴板变化失败', e, stack);
     }
   }
 

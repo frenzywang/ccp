@@ -592,30 +592,8 @@ class SettingsWindow extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('在开发模式下，应用通常位于以下路径：'),
-                SizedBox(height: 8),
-                SelectableText(
-                  '/Users/[用户名]/go/src/gitlab.myteksi.net/junya.wang/ccp/build/macos/Build/Products/Debug/ccp.app',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    backgroundColor: Colors.grey,
-                  ),
-                ),
-                SizedBox(height: 12),
-                Text('如果是发布版本，路径可能是：'),
-                SizedBox(height: 8),
-                SelectableText(
-                  '/Applications/ccp.app',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    backgroundColor: Colors.grey,
-                  ),
-                ),
-                SizedBox(height: 12),
                 Text(
-                  '您也可以在 Finder 中搜索 "ccp.app" 来找到应用位置。',
+                  '您可以在 Finder 中搜索 "ccp.app" 来找到应用位置。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],

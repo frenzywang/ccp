@@ -26,11 +26,24 @@ class ClipboardItem {
   @HiveField(3)
   final DateTime createdAt;
 
+  // 图片相关属性
+  @HiveField(4)
+  final String? imagePath; // 图片文件路径
+
+  @HiveField(5)
+  final int? imageWidth; // 图片宽度
+
+  @HiveField(6)
+  final int? imageHeight; // 图片高度
+
   ClipboardItem({
     required this.id,
     required this.content,
     required this.type,
     required this.createdAt,
+    this.imagePath,
+    this.imageWidth,
+    this.imageHeight,
   });
 
   /// 从JSON创建ClipboardItem (兼容旧数据)
@@ -43,6 +56,9 @@ class ClipboardItem {
         orElse: () => ClipboardItemType.text,
       ),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      imagePath: json['imagePath'] as String?,
+      imageWidth: json['imageWidth'] as int?,
+      imageHeight: json['imageHeight'] as int?,
     );
   }
 
@@ -53,12 +69,15 @@ class ClipboardItem {
       'content': content,
       'type': type.toString(),
       'createdAt': createdAt.toIso8601String(),
+      'imagePath': imagePath,
+      'imageWidth': imageWidth,
+      'imageHeight': imageHeight,
     };
   }
 
   @override
   String toString() {
-    return 'ClipboardItem(id: $id, content: $content, type: $type, createdAt: $createdAt)';
+    return 'ClipboardItem(id: $id, content: $content, type: $type, createdAt: $createdAt, imagePath: $imagePath, imageWidth: $imageWidth, imageHeight: $imageHeight)';
   }
 
   @override
@@ -68,11 +87,20 @@ class ClipboardItem {
         other.id == id &&
         other.content == content &&
         other.type == type &&
-        other.createdAt == createdAt;
+        other.createdAt == createdAt &&
+        other.imagePath == imagePath &&
+        other.imageWidth == imageWidth &&
+        other.imageHeight == imageHeight;
   }
 
   @override
   int get hashCode {
-    return id.hashCode ^ content.hashCode ^ type.hashCode ^ createdAt.hashCode;
+    return id.hashCode ^
+        content.hashCode ^
+        type.hashCode ^
+        createdAt.hashCode ^
+        imagePath.hashCode ^
+        imageWidth.hashCode ^
+        imageHeight.hashCode;
   }
 }

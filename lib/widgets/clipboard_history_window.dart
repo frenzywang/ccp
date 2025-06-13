@@ -5,6 +5,9 @@ import '../models/clipboard_item.dart';
 import '../controllers/clipboard_controller.dart';
 import '../services/window_service.dart';
 import '../services/clipboard_service.dart';
+import '../services/native_clipboard_service.dart';
+import 'dart:io';
+import 'dart:typed_data';
 
 class ClipboardHistoryWindow extends StatelessWidget {
   const ClipboardHistoryWindow({super.key});
@@ -210,20 +213,112 @@ class ClipboardHistoryWindow extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // 文本内容
-                            Text(
-                              _truncateText(item.content, 120),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.black87,
+                            // 根据类型显示不同内容
+                            if (item.type == ClipboardItemType.image) ...[
+                              // 图片内容
+                              Row(
+                                children: [
+                                  // 图片缩略图
+                                  if (item.imagePath != null &&
+                                      File(item.imagePath!).existsSync())
+                                    Container(
+                                      width: 50,
+                                      height: 50,
+                                      margin: const EdgeInsets.only(right: 12),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: Image.file(
+                                          File(item.imagePath!),
+                                          fit: BoxFit.cover,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                                return Container(
+                                                  color: Colors.grey.shade200,
+                                                  child: const Icon(
+                                                    Icons.broken_image,
+                                                    color: Colors.grey,
+                                                    size: 24,
+                                                  ),
+                                                );
+                                              },
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    Container(
+                                      width: 50,
+                                      height: 50,
+                                      margin: const EdgeInsets.only(right: 12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade200,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(
+                                        Icons.image,
+                                        color: Colors.grey,
+                                        size: 24,
+                                      ),
+                                    ),
+                                  // 图片信息
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.content,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.black87,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        if (item.imageWidth != null &&
+                                            item.imageHeight != null)
+                                          Text(
+                                            '${item.imageWidth}×${item.imageHeight}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                            ] else ...[
+                              // 文本内容
+                              Text(
+                                _truncateText(item.content, 120),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                             const SizedBox(height: 4),
                             // 元数据
                             Row(
                               children: [
+                                // 类型图标
+                                Icon(
+                                  item.type == ClipboardItemType.image
+                                      ? Icons.image
+                                      : Icons.text_fields,
+                                  size: 14,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
                                 Text(
                                   _formatTime(item.createdAt),
                                   style: const TextStyle(
@@ -233,13 +328,16 @@ class ClipboardHistoryWindow extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${item.content.length} chars',
+                                  item.type == ClipboardItemType.image
+                                      ? 'Image'
+                                      : '${item.content.length} chars',
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey,
                                   ),
                                 ),
-                                if (item.content.length > 120) ...[
+                                if (item.type == ClipboardItemType.text &&
+                                    item.content.length > 120) ...[
                                   const SizedBox(width: 8),
                                   const Icon(
                                     Icons.more_horiz,
@@ -352,9 +450,16 @@ class ClipboardHistoryWindow extends StatelessWidget {
         print('⚠️ 暂停监听失败: $e');
       }
 
-      // 1. 直接使用 Controller 复制到系统剪贴板
-      await controller.copyToClipboard(item.content);
-      print('📋 内容已通过GetX复制到剪贴板');
+      // 1. 根据类型复制到系统剪贴板
+      if (item.type == ClipboardItemType.image && item.imagePath != null) {
+        // 图片类型：重新加载图片文件并设置到剪贴板
+        print('🖼️ 正在重新加载图片文件: ${item.imagePath}');
+        await _copyImageToClipboard(item.imagePath!);
+      } else {
+        // 文本类型：直接复制文本内容
+        await controller.copyToClipboard(item.content);
+        print('📋 内容已通过GetX复制到剪贴板');
+      }
 
       // 2. 隐藏窗口
       final windowService = WindowService();
@@ -386,5 +491,29 @@ class ClipboardHistoryWindow extends StatelessWidget {
   String _truncateText(String text, int maxLength) {
     if (text.length <= maxLength) return text;
     return '${text.substring(0, maxLength)}...';
+  }
+
+  Future<void> _copyImageToClipboard(String imagePath) async {
+    try {
+      // 读取图片文件
+      final File imageFile = File(imagePath);
+      if (!await imageFile.exists()) {
+        print('❌ 图片文件不存在: $imagePath');
+        return;
+      }
+
+      final Uint8List imageData = await imageFile.readAsBytes();
+      print('🖼️ 已读取图片文件: ${imageData.length} 字节');
+
+      // 使用原生API设置图片到剪贴板
+      final bool success = await NativeClipboardService.setImageData(imageData);
+      if (success) {
+        print('✅ 图片已成功设置到剪贴板');
+      } else {
+        print('❌ 设置图片到剪贴板失败');
+      }
+    } catch (e) {
+      print('❌ 复制图片到剪贴板失败: $e');
+    }
   }
 }
