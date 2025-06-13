@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:get/get.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
+
+import 'window_service.dart';
 
 class SystemTrayService {
   static final SystemTrayService _instance = SystemTrayService._internal();
@@ -34,15 +34,33 @@ class SystemTrayService {
   }
 
   Future<void> _initTrayAndMenu() async {
+    print('📱 开始初始化系统托盘...');
+    print('📱 平台信息: ${Platform.operatingSystem}');
+
     try {
-      await _systemTray.initSystemTray(title: "", iconPath: _getIconPath());
-      print('System tray initialized with icon');
-    } catch (iconError) {
-      print('Warning: Could not initialize with icon: $iconError');
-      await _systemTray.initSystemTray(title: "", iconPath: '');
-      print('System tray initialized without icon');
+      // 恢复原来的初始化方式，带图标
+      String iconPath = _getIconPath();
+      await _systemTray.initSystemTray(
+        title: "",
+        iconPath: iconPath,
+        toolTip: "剪贴板历史管理",
+      );
+      print('✅ 系统托盘基础初始化成功');
+
+      // 设置事件监听，修复事件名称
+      _systemTray.registerSystemTrayEventHandler((eventName) {
+        print('📱 系统托盘事件: $eventName');
+        if (eventName == 'click' || eventName == 'right-click') {
+          print('📱 系统托盘被点击，尝试显示菜单');
+          _systemTray.popUpContextMenu();
+        }
+      });
+
+      await _buildMenu();
+    } catch (e) {
+      print('❌ 系统托盘初始化失败: $e');
+      rethrow;
     }
-    await _buildMenu();
   }
 
   Future<void> _loadAppInfo() async {
@@ -68,39 +86,152 @@ class SystemTrayService {
   }
 
   Future<void> _buildMenu() async {
+    print('📱 构建菜单项...');
+
+    try {
+      await _menu.buildFrom([
+        MenuItemLabel(
+          label: '📋 显示剪贴板历史',
+          onClicked: (menuItem) {
+            _closeAllDialogs();
+
+            print('📱 点击了：显示剪贴板历史');
+            if (onShowHistory != null) {
+              onShowHistory!.call();
+            } else {
+              WindowService().showClipboardHistory();
+            }
+            _refreshMenu();
+          },
+        ),
+        MenuSeparator(),
+        MenuItemLabel(
+          label: '⚙️ 设置',
+          onClicked: (menuItem) {
+            print('📱 点击了：设置');
+            if (onSettings != null) {
+              onSettings!.call();
+            } else {
+              _showSettings();
+            }
+          },
+        ),
+        MenuItemLabel(
+          label: 'ℹ️ 关于 $_appName',
+          onClicked: (menuItem) {
+            print('📱 点击了：关于');
+            _showAbout();
+          },
+        ),
+        MenuSeparator(),
+        MenuItemLabel(
+          label: '❌ 退出',
+          onClicked: (menuItem) {
+            print('📱 点击了：退出');
+            if (onQuit != null) {
+              onQuit!.call();
+            } else {
+              exit(0);
+            }
+          },
+        ),
+      ]);
+      print('📱 菜单项构建成功，设置到系统托盘...');
+
+      await _systemTray.setContextMenu(_menu);
+      print('✅ 菜单已成功设置到系统托盘');
+    } catch (e) {
+      print('❌ 菜单构建或设置失败: $e');
+      rethrow;
+    }
+  }
+
+  void _refreshMenu() async {
+    // 重新加载应用信息并刷新菜单
+    await _loadAppInfo();
+    await _rebuildMenuOnly();
+  }
+
+  Future<void> _rebuildMenuOnly() async {
     await _menu.buildFrom([
       MenuItemLabel(
         label: '📋 显示剪贴板历史',
         onClicked: (menuItem) {
-          onShowHistory?.call();
-          _refreshMenu();
+          _closeAllDialogs();
+
+          if (onShowHistory != null) {
+            onShowHistory!.call();
+          } else {
+            WindowService().showClipboardHistory();
+          }
         },
       ),
       MenuSeparator(),
       MenuItemLabel(
         label: '⚙️ 设置',
         onClicked: (menuItem) {
-          onSettings?.call();
-          _refreshMenu();
+          print('📱 _rebuildMenuOnly: 点击了设置');
+          if (onSettings != null) {
+            onSettings!.call();
+          } else {
+            _showSettings();
+          }
         },
       ),
       MenuItemLabel(
         label: 'ℹ️ 关于 $_appName',
         onClicked: (menuItem) {
-          _showAboutDialog();
-          _refreshMenu();
+          _showAbout();
         },
       ),
       MenuSeparator(),
-      MenuItemLabel(label: '❌ 退出', onClicked: (menuItem) => onQuit?.call()),
+      MenuItemLabel(
+        label: '❌ 退出',
+        onClicked: (menuItem) {
+          if (onQuit != null) {
+            onQuit!.call();
+          } else {
+            exit(0);
+          }
+        },
+      ),
     ]);
     await _systemTray.setContextMenu(_menu);
   }
 
-  void _refreshMenu() async {
-    // 重新加载应用信息并刷新菜单
-    await _loadAppInfo();
-    await _buildMenu();
+  void _showSettings() async {
+    print('📱 显示设置对话框，先显示窗口');
+    // 关闭所有现有弹窗
+    _closeAllDialogs();
+    // 先显示窗口，确保有context
+    await WindowService().showClipboardHistory();
+    // 延迟一下确保窗口已显示
+    await Future.delayed(Duration(milliseconds: 10));
+    // 然后显示设置对话框
+    WindowService().showSettingsDialog();
+  }
+
+  void _showAbout() async {
+    print('📱 显示关于对话框，先显示窗口');
+    // 关闭所有现有弹窗
+    _closeAllDialogs();
+    // 先显示窗口，确保有context
+    await WindowService().showClipboardHistory();
+    // 延迟一下确保窗口已显示
+    await Future.delayed(Duration(milliseconds: 10));
+    // 然后显示关于对话框
+    _showAboutDialog();
+  }
+
+  void _closeAllDialogs() {
+    final context = Get.context;
+    if (context != null) {
+      // 关闭所有现有的对话框
+      Navigator.of(context, rootNavigator: true).popUntil((route) {
+        return route.isFirst || !route.hasActiveRouteBelow;
+      });
+      print('📱 已关闭所有现有弹窗');
+    }
   }
 
   void _showAboutDialog() {
@@ -185,16 +316,8 @@ class SystemTrayService {
   }
 
   void _showNativeAboutPanel() {
-    // macOS原生About Panel
-    final DynamicLibrary appKit = DynamicLibrary.open(
-      '/System/Library/Frameworks/AppKit.framework/AppKit',
-    );
-    final void Function() orderFrontStandardAboutPanel = appKit
-        .lookup<NativeFunction<Void Function()>>(
-          'NSApplication_orderFrontStandardAboutPanel_',
-        )
-        .asFunction();
-    orderFrontStandardAboutPanel();
+    // 当没有Flutter context时，调用Flutter的aboutDialog
+    _showAboutDialog();
   }
 
   Future<void> updateIcon({bool isActive = false}) async {
@@ -222,6 +345,8 @@ class SystemTrayService {
     this.onShowHistory = onShowHistory;
     this.onSettings = onSettings;
     this.onQuit = onQuit;
+
+    _rebuildMenuOnly();
   }
 
   Future<void> dispose() async {

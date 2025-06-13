@@ -128,8 +128,9 @@ Future<void> _initializeMainWindow() async {
     // 5. 设置系统托盘回调
     SystemTrayService().setCallbacks(
       onShowHistory: WindowService().showClipboardHistory,
-      onSettings: () {
-        // 直接调用 WindowService 中的设置对话框方法
+      onSettings: () async {
+        await WindowService().showClipboardHistory();
+        await Future.delayed(Duration(milliseconds: 10));
         WindowService().showSettingsDialog();
       },
       onQuit: () async {
